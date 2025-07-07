@@ -15,11 +15,7 @@
  * limitations under the License.
  */
 
-package com.alibaba.fluss.server.coordinator.statemachine;
+package com.alibaba.fluss.server.coordinator.event;
 
-/** The strategies to elect the replica leader. */
-public enum ReplicaLeaderElectionStrategy {
-    DEFAULT_ELECTION,
-    CONTROLLED_SHUTDOWN_ELECTION,
-    PREFERRED_LEADER_ELECTION
-}
+/** An event for auto rebalance the replica leader. */
+public class AutoPreferredReplicaLeaderElection implements CoordinatorEvent {}

@@ -45,6 +45,7 @@ import com.alibaba.fluss.rpc.messages.PbCommitLakeTableSnapshotRespForTable;
 import com.alibaba.fluss.rpc.protocol.ApiError;
 import com.alibaba.fluss.server.coordinator.event.AccessContextEvent;
 import com.alibaba.fluss.server.coordinator.event.AdjustIsrReceivedEvent;
+import com.alibaba.fluss.server.coordinator.event.AutoPreferredReplicaLeaderElection;
 import com.alibaba.fluss.server.coordinator.event.CommitKvSnapshotEvent;
 import com.alibaba.fluss.server.coordinator.event.CommitLakeTableSnapshotEvent;
 import com.alibaba.fluss.server.coordinator.event.CommitRemoteLogManifestEvent;
@@ -87,6 +88,7 @@ import com.alibaba.fluss.server.zk.data.TableAssignment;
 import com.alibaba.fluss.server.zk.data.TabletServerRegistration;
 import com.alibaba.fluss.server.zk.data.ZkData.PartitionIdsZNode;
 import com.alibaba.fluss.server.zk.data.ZkData.TableIdsZNode;
+import com.alibaba.fluss.utils.concurrent.Scheduler;
 import com.alibaba.fluss.utils.types.Tuple2;
 
 import org.slf4j.Logger;
@@ -97,6 +99,7 @@ import javax.annotation.concurrent.NotThreadSafe;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -108,7 +111,9 @@ import java.util.stream.Collectors;
 
 import static com.alibaba.fluss.server.coordinator.statemachine.BucketState.OfflineBucket;
 import static com.alibaba.fluss.server.coordinator.statemachine.BucketState.OnlineBucket;
+import static com.alibaba.fluss.server.coordinator.statemachine.ReplicaLeaderElectionAlgorithms.preferredReplicaLeaderElection;
 import static com.alibaba.fluss.server.coordinator.statemachine.ReplicaLeaderElectionStrategy.CONTROLLED_SHUTDOWN_ELECTION;
+import static com.alibaba.fluss.server.coordinator.statemachine.ReplicaLeaderElectionStrategy.PREFERRED_LEADER_ELECTION;
 import static com.alibaba.fluss.server.coordinator.statemachine.ReplicaState.OfflineReplica;
 import static com.alibaba.fluss.server.coordinator.statemachine.ReplicaState.OnlineReplica;
 import static com.alibaba.fluss.server.coordinator.statemachine.ReplicaState.ReplicaDeletionStarted;
@@ -138,8 +143,11 @@ public class CoordinatorEventProcessor implements EventProcessor {
     private final CoordinatorRequestBatch coordinatorRequestBatch;
     private final CoordinatorMetricGroup coordinatorMetricGroup;
     private final String internalListenerName;
+    private final Configuration conf;
 
     private final CompletedSnapshotStoreManager completedSnapshotStoreManager;
+
+    private final Scheduler scheduler;
 
     // metrics
     private volatile int tabletServerCount;
@@ -157,7 +165,8 @@ public class CoordinatorEventProcessor implements EventProcessor {
             LakeTableTieringManager lakeTableTieringManager,
             CoordinatorMetricGroup coordinatorMetricGroup,
             Configuration conf,
-            ExecutorService ioExecutor) {
+            ExecutorService ioExecutor,
+            Scheduler scheduler) {
         this.zooKeeperClient = zooKeeperClient;
         this.serverMetadataCache = serverMetadataCache;
         this.coordinatorChannelManager = coordinatorChannelManager;
@@ -202,7 +211,9 @@ public class CoordinatorEventProcessor implements EventProcessor {
         this.autoPartitionManager = autoPartitionManager;
         this.lakeTableTieringManager = lakeTableTieringManager;
         this.coordinatorMetricGroup = coordinatorMetricGroup;
+        this.conf = conf;
         this.internalListenerName = conf.getString(ConfigOptions.INTERNAL_LISTENER_NAME);
+        this.scheduler = scheduler;
         registerMetrics();
     }
 
@@ -250,6 +261,10 @@ public class CoordinatorEventProcessor implements EventProcessor {
 
         // start the event manager which will then process the event
         coordinatorEventManager.start();
+
+        if (conf.getBoolean(ConfigOptions.AUTO_LEADER_REBALANCE_ENABLE)) {
+            scheduleAutoLeaderRebalanceTask(5000);
+        }
     }
 
     public void shutdown() {
@@ -281,6 +296,13 @@ public class CoordinatorEventProcessor implements EventProcessor {
         } catch (Exception e) {
             throw new FlussRuntimeException("Get coordinator address failed.", e);
         }
+    }
+
+    private void scheduleAutoLeaderRebalanceTask(long delayMs) {
+        scheduler.scheduleOnce(
+                "auto-leader-rebalance-task",
+                () -> coordinatorEventManager.put(new AutoPreferredReplicaLeaderElection()),
+                delayMs);
     }
 
     public int getCoordinatorEpoch() {
@@ -505,6 +527,8 @@ public class CoordinatorEventProcessor implements EventProcessor {
             } else if (event instanceof AccessContextEvent) {
                 AccessContextEvent<?> accessContextEvent = (AccessContextEvent<?>) event;
                 processAccessContext(accessContextEvent);
+            } else if (event instanceof AutoPreferredReplicaLeaderElection) {
+                processAutoPreferredReplicaLeaderElection();
             } else {
                 LOG.warn("Unknown event type: {}", event.getClass().getName());
             }
@@ -1051,6 +1075,88 @@ public class CoordinatorEventProcessor implements EventProcessor {
         } catch (Throwable t) {
             event.getResultFuture().completeExceptionally(t);
         }
+    }
+
+    private void processAutoPreferredReplicaLeaderElection() {
+        try {
+            LOG.info("Processing automatic preferred replica leader election");
+            checkAndTriggerAutoLeaderRebalance();
+        } finally {
+            scheduleAutoLeaderRebalanceTask(
+                    conf.getInt(ConfigOptions.LEADER_IMBALANCE_CHECK_INTERVAL_SECONDS) * 1000L);
+        }
+    }
+
+    private void checkAndTriggerAutoLeaderRebalance() {
+        LOG.trace("Checking need to trigger auto leader balancing");
+        Map<Integer, Map<TableBucket, List<Integer>>> preferredReplicasForTopicsByTabletServers =
+                new HashMap<>();
+        coordinatorContext.allBuckets().stream()
+                .filter(tb -> !coordinatorContext.isToBeDeleted(tb))
+                .collect(Collectors.toMap(tb -> tb, coordinatorContext::getAssignment))
+                .forEach(
+                        (tb, assignment) ->
+                                preferredReplicasForTopicsByTabletServers
+                                        .computeIfAbsent(assignment.get(0), k -> new HashMap<>())
+                                        .put(tb, assignment));
+
+        // for each tablet server, check if a preferred replica election needs to be triggered
+        for (Map.Entry<Integer, Map<TableBucket, List<Integer>>> entry :
+                preferredReplicasForTopicsByTabletServers.entrySet()) {
+            int leader = entry.getKey();
+            Set<TableBucket> tableBucketsNotInPreferredReplica = new HashSet<>();
+            for (TableBucket tableBucket : entry.getValue().keySet()) {
+                Optional<LeaderAndIsr> leaderAndIsrOp =
+                        coordinatorContext.getBucketLeaderAndIsr(tableBucket);
+                leaderAndIsrOp
+                        .filter(leaderAndIsr -> leaderAndIsr.leader() != leader)
+                        .ifPresent(
+                                leaderAndIsr -> tableBucketsNotInPreferredReplica.add(tableBucket));
+            }
+            LOG.debug(
+                    "Table buckets not in preferred replica for tablet server {} {}",
+                    leader,
+                    tableBucketsNotInPreferredReplica);
+
+            double imbalanceRatio =
+                    (double) tableBucketsNotInPreferredReplica.size() / entry.getValue().size();
+            LOG.trace("Leader imbalance ratio for tablet server {} is {}", leader, imbalanceRatio);
+
+            // check ratio and if greater than desired ratio, trigger a rebalance for the table
+            // buckets
+            // that need to be on this tablet server
+            if (imbalanceRatio
+                    > ((double)
+                                    conf.getInt(
+                                            ConfigOptions
+                                                    .LEADER_IMBALANCE_PER_TABLET_SERVER_PERCENTAGE)
+                            / 100)) {
+                // do this check only if the tablet server is live and preferred replica election is
+                // not in progress
+                Set<TableBucket> candidateTableBuckets =
+                        tableBucketsNotInPreferredReplica.stream()
+                                .filter(
+                                        tb ->
+                                                !coordinatorContext.isToBeDeleted(tb)
+                                                        && coordinatorContext
+                                                                .allBuckets()
+                                                                .contains(tb)
+                                                        && canPreferredReplicaBeLeader(tb))
+                                .collect(Collectors.toSet());
+                tableBucketStateMachine.handleStateChange(
+                        candidateTableBuckets, OnlineBucket, PREFERRED_LEADER_ELECTION);
+            }
+        }
+    }
+
+    private boolean canPreferredReplicaBeLeader(TableBucket tableBucket) {
+        List<Integer> assignment = coordinatorContext.getAssignment(tableBucket);
+        List<Integer> liveReplicas =
+                assignment.stream()
+                        .filter(replica -> coordinatorContext.isReplicaOnline(replica, tableBucket))
+                        .collect(Collectors.toList());
+        List<Integer> isr = coordinatorContext.getBucketLeaderAndIsr(tableBucket).get().isr();
+        return preferredReplicaLeaderElection(assignment, liveReplicas, isr).isPresent();
     }
 
     private CommitLakeTableSnapshotResponse tryProcessCommitLakeTableSnapshot(

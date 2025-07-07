@@ -52,4 +52,11 @@ public class ReplicaLeaderElectionAlgorithms {
         }
         return Optional.empty();
     }
+
+    public static Optional<Integer> preferredReplicaLeaderElection(
+            List<Integer> assignments, List<Integer> aliveReplicas, List<Integer> isr) {
+        return assignments.stream()
+                .findFirst()
+                .filter(id -> aliveReplicas.contains(id) && isr.contains(id));
+    }
 }

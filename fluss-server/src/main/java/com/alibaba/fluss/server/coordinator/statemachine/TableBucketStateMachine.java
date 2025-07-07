@@ -42,8 +42,10 @@ import java.util.stream.Collectors;
 
 import static com.alibaba.fluss.server.coordinator.statemachine.ReplicaLeaderElectionAlgorithms.controlledShutdownReplicaLeaderElection;
 import static com.alibaba.fluss.server.coordinator.statemachine.ReplicaLeaderElectionAlgorithms.defaultReplicaLeaderElection;
+import static com.alibaba.fluss.server.coordinator.statemachine.ReplicaLeaderElectionAlgorithms.preferredReplicaLeaderElection;
 import static com.alibaba.fluss.server.coordinator.statemachine.ReplicaLeaderElectionStrategy.CONTROLLED_SHUTDOWN_ELECTION;
 import static com.alibaba.fluss.server.coordinator.statemachine.ReplicaLeaderElectionStrategy.DEFAULT_ELECTION;
+import static com.alibaba.fluss.server.coordinator.statemachine.ReplicaLeaderElectionStrategy.PREFERRED_LEADER_ELECTION;
 
 /* This file is based on source code of Apache Kafka Project (https://kafka.apache.org/), licensed by the Apache
  * Software Foundation (ASF) under the Apache License, Version 2.0. See the NOTICE file distributed with this work for
@@ -168,10 +170,16 @@ public class TableBucketStateMachine {
      * leader since the previous leader fail. Do: choose a new leader, send the leader info to the
      * servers that hold the replicas of the bucket and mark it as OnlineBucket.
      *
-     * <p>-- For OnlineBucket -> OnlineBucket, it happens on tablet server that holds leaders of
-     * bucket shutdown graceful. Coordinator server receives the shutdown request from tablet server
-     * and choose other replicas as the leader. Do: choose a new leader, send the leader info to the
-     * servers that hold the replicas of the bucket and mark it as OnlineBucket.
+     * <p>-- For OnlineBucket -> OnlineBucket:
+     *
+     * <p>-- Case1: it happens on tablet server that holds leaders of bucket shutdown graceful.
+     * Coordinator server receives the shutdown request from tablet server and choose other replicas
+     * as the leader. Do: choose a new leader, send the leader info to the servers that hold the
+     * replicas of the bucket and mark it as OnlineBucket.
+     *
+     * <p>-- Case2: it happens when the leader imbalance of the replicas exceeds the set threshold.
+     * Do: elect the preferred leader, send the leader info to the servers that hold the replicas of
+     * the bucket and mark it as OnlineBucket.
      *
      * <p>NewBucket, OnlineBucket, OfflineBucket -> OfflineBucket
      *
@@ -585,6 +593,7 @@ public class TableBucketStateMachine {
      * <ol>
      *   <li>new or offline bucket
      *   <li>tabletServer controlled shutdown
+     *   <li>preferred replica leader rebalance
      * </ol>
      */
     private Optional<ElectionResult> electLeader(
@@ -619,6 +628,9 @@ public class TableBucketStateMachine {
                             leaderAndIsr.isr(),
                             liveReplicas,
                             shuttingDownTabletServers);
+        } else if (electionStrategy == PREFERRED_LEADER_ELECTION) {
+            leaderOpt =
+                    preferredReplicaLeaderElection(assignment, liveReplicas, leaderAndIsr.isr());
         }
 
         if (!leaderOpt.isPresent()) {

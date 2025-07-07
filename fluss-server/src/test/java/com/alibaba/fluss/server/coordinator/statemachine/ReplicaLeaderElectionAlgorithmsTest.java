@@ -28,6 +28,7 @@ import java.util.Set;
 
 import static com.alibaba.fluss.server.coordinator.statemachine.ReplicaLeaderElectionAlgorithms.controlledShutdownReplicaLeaderElection;
 import static com.alibaba.fluss.server.coordinator.statemachine.ReplicaLeaderElectionAlgorithms.defaultReplicaLeaderElection;
+import static com.alibaba.fluss.server.coordinator.statemachine.ReplicaLeaderElectionAlgorithms.preferredReplicaLeaderElection;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** Test for {@link ReplicaLeaderElectionAlgorithms}. */
@@ -76,6 +77,37 @@ public class ReplicaLeaderElectionAlgorithmsTest {
         Optional<Integer> leaderOpt =
                 controlledShutdownReplicaLeaderElection(
                         assignments, liveReplicas, isr, shutdownTabletServers);
+        assertThat(leaderOpt).isEmpty();
+    }
+
+    @Test
+    void testPreferredReplicaLeaderElection() {
+        List<Integer> assignments = Arrays.asList(2, 4);
+
+        // preferred leader in live replicas and isr
+        List<Integer> liveReplicas = Arrays.asList(2, 4);
+        List<Integer> isr = Arrays.asList(2, 4);
+
+        Optional<Integer> leaderOpt =
+                preferredReplicaLeaderElection(assignments, liveReplicas, isr);
+        assertThat(leaderOpt).hasValue(2);
+
+        // preferred leader in live replicas but not isr
+        liveReplicas = Arrays.asList(2, 4);
+        isr = Collections.singletonList(4);
+        leaderOpt = preferredReplicaLeaderElection(assignments, liveReplicas, isr);
+        assertThat(leaderOpt).isEmpty();
+
+        // preferred leader not in live replicas but in isr
+        liveReplicas = Collections.singletonList(4);
+        isr = Arrays.asList(2, 4);
+        leaderOpt = preferredReplicaLeaderElection(assignments, liveReplicas, isr);
+        assertThat(leaderOpt).isEmpty();
+
+        // preferred leader not in live replicas and isr
+        liveReplicas = Collections.singletonList(4);
+        isr = Collections.singletonList(4);
+        leaderOpt = preferredReplicaLeaderElection(assignments, liveReplicas, isr);
         assertThat(leaderOpt).isEmpty();
     }
 }

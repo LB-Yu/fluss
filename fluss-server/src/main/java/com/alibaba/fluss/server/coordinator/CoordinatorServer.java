@@ -49,7 +49,9 @@ import com.alibaba.fluss.shaded.zookeeper3.org.apache.zookeeper.KeeperException;
 import com.alibaba.fluss.utils.ExceptionUtils;
 import com.alibaba.fluss.utils.ExecutorUtils;
 import com.alibaba.fluss.utils.concurrent.ExecutorThreadFactory;
+import com.alibaba.fluss.utils.concurrent.FlussScheduler;
 import com.alibaba.fluss.utils.concurrent.FutureUtils;
+import com.alibaba.fluss.utils.concurrent.Scheduler;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -69,6 +71,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import static com.alibaba.fluss.config.ConfigOptions.BACKGROUND_THREADS;
 import static com.alibaba.fluss.server.utils.LakeStorageUtils.extractLakeProperties;
 import static com.alibaba.fluss.utils.Preconditions.checkNotNull;
 
@@ -138,6 +141,9 @@ public class CoordinatorServer extends ServerBase {
     private ExecutorService ioExecutor;
 
     @GuardedBy("lock")
+    private Scheduler scheduler;
+
+    @GuardedBy("lock")
     @Nullable
     private Authorizer authorizer;
 
@@ -177,6 +183,9 @@ public class CoordinatorServer extends ServerBase {
 
             this.coordinatorContext = new CoordinatorContext();
             this.metadataCache = new CoordinatorMetadataCache();
+
+            this.scheduler = new FlussScheduler(conf.get(BACKGROUND_THREADS));
+            scheduler.startup();
 
             this.authorizer = AuthorizerLoader.createAuthorizer(conf, zkClient, pluginManager);
             if (authorizer != null) {
@@ -240,7 +249,8 @@ public class CoordinatorServer extends ServerBase {
                             lakeTableTieringManager,
                             serverMetricGroup,
                             conf,
-                            ioExecutor);
+                            ioExecutor,
+                            scheduler);
             coordinatorEventProcessor.startup();
 
             createDefaultDatabase();
@@ -374,6 +384,16 @@ public class CoordinatorServer extends ServerBase {
             try {
                 if (metricRegistry != null) {
                     terminationFutures.add(metricRegistry.closeAsync());
+                }
+            } catch (Throwable t) {
+                exception = ExceptionUtils.firstOrSuppressed(t, exception);
+            }
+
+            // We must shut down the scheduler early because otherwise, the scheduler could
+            // touch other resources that might have been shutdown and cause exceptions.
+            try {
+                if (scheduler != null) {
+                    scheduler.shutdown();
                 }
             } catch (Throwable t) {
                 exception = ExceptionUtils.firstOrSuppressed(t, exception);

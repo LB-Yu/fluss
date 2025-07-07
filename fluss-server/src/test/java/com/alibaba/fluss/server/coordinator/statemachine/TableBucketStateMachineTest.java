@@ -43,6 +43,7 @@ import com.alibaba.fluss.server.zk.data.LeaderAndIsr;
 import com.alibaba.fluss.shaded.guava32.com.google.common.collect.Sets;
 import com.alibaba.fluss.testutils.common.AllCallbackWrapper;
 import com.alibaba.fluss.utils.concurrent.ExecutorThreadFactory;
+import com.alibaba.fluss.utils.concurrent.FlussScheduler;
 
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -66,6 +67,7 @@ import static com.alibaba.fluss.server.coordinator.statemachine.BucketState.NonE
 import static com.alibaba.fluss.server.coordinator.statemachine.BucketState.OfflineBucket;
 import static com.alibaba.fluss.server.coordinator.statemachine.BucketState.OnlineBucket;
 import static com.alibaba.fluss.server.coordinator.statemachine.ReplicaLeaderElectionStrategy.CONTROLLED_SHUTDOWN_ELECTION;
+import static com.alibaba.fluss.server.coordinator.statemachine.ReplicaLeaderElectionStrategy.PREFERRED_LEADER_ELECTION;
 import static com.alibaba.fluss.testutils.common.CommonTestUtils.retry;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -78,6 +80,7 @@ class TableBucketStateMachineTest {
 
     private static ZooKeeperClient zookeeperClient;
     private static CoordinatorContext coordinatorContext;
+    private static FlussScheduler scheduler;
     private TestCoordinatorChannelManager testCoordinatorChannelManager;
     private CoordinatorRequestBatch coordinatorRequestBatch;
     private AutoPartitionManager autoPartitionManager;
@@ -90,6 +93,8 @@ class TableBucketStateMachineTest {
                 ZOO_KEEPER_EXTENSION_WRAPPER
                         .getCustomExtension()
                         .getZooKeeperClient(NOPErrorHandler.INSTANCE);
+        scheduler = new FlussScheduler(2);
+        scheduler.startup();
     }
 
     @BeforeEach
@@ -255,7 +260,8 @@ class TableBucketStateMachineTest {
                         TestingMetricGroups.COORDINATOR_METRICS,
                         new Configuration(),
                         Executors.newFixedThreadPool(
-                                1, new ExecutorThreadFactory("test-coordinator-io")));
+                                1, new ExecutorThreadFactory("test-coordinator-io")),
+                        scheduler);
         CoordinatorEventManager eventManager =
                 new CoordinatorEventManager(
                         coordinatorEventProcessor, TestingMetricGroups.COORDINATOR_METRICS);
@@ -372,6 +378,58 @@ class TableBucketStateMachineTest {
         assertThat(coordinatorContext.getBucketState(tb)).isEqualTo(OnlineBucket);
         assertThat(coordinatorContext.getBucketLeaderAndIsr(tb).get().leader())
                 .isNotEqualTo(oldLeader);
+    }
+
+    @Test
+    void testStateChangeForPreferredLeaderRebalance() {
+        TableBucketStateMachine tableBucketStateMachine = createTableBucketStateMachine();
+        long tableId = 8;
+        TablePath fakeTablePath = TablePath.of("db1", "t3");
+        TableBucket tb = new TableBucket(tableId, 0);
+
+        // init coordinator context.
+        coordinatorContext.putTableInfo(
+                TableInfo.of(
+                        fakeTablePath,
+                        tableId,
+                        0,
+                        DATA1_TABLE_DESCRIPTOR,
+                        System.currentTimeMillis(),
+                        System.currentTimeMillis()));
+        coordinatorContext.putTablePath(tableId, fakeTablePath);
+        coordinatorContext.updateBucketReplicaAssignment(tb, Arrays.asList(0, 1, 2));
+        coordinatorContext.putBucketState(tb, NewBucket);
+
+        List<Integer> aliveServers = Arrays.asList(0, 1, 2);
+        coordinatorContext.setLiveTabletServers(createServers(aliveServers));
+        makeSendLeaderAndStopRequestAlwaysSuccess(
+                coordinatorContext, testCoordinatorChannelManager);
+
+        // check state is online.
+        tableBucketStateMachine.handleStateChange(Collections.singleton(tb), OnlineBucket);
+        assertThat(coordinatorContext.getBucketState(tb)).isEqualTo(OnlineBucket);
+        assertThat(coordinatorContext.liveTabletServerIds())
+                .containsExactlyInAnyOrderElementsOf(aliveServers);
+        assertThat(coordinatorContext.liveOrShuttingDownTabletServers())
+                .containsExactlyInAnyOrderElementsOf(aliveServers);
+
+        int leader = coordinatorContext.getBucketLeaderAndIsr(tb).get().leader();
+        assertThat(leader).isEqualTo(0);
+
+        // assume server 0 failed
+        coordinatorContext.setLiveTabletServers(createServers(Arrays.asList(1, 2)));
+        tableBucketStateMachine.handleStateChange(Collections.singleton(tb), OfflineBucket);
+        tableBucketStateMachine.triggerOnlineBucketStateChange();
+
+        leader = coordinatorContext.getBucketLeaderAndIsr(tb).get().leader();
+        assertThat(leader).isEqualTo(1);
+
+        // server 0 comes again
+        coordinatorContext.setLiveTabletServers(createServers(Arrays.asList(0, 1, 2)));
+        tableBucketStateMachine.handleStateChange(
+                Collections.singleton(tb), OnlineBucket, PREFERRED_LEADER_ELECTION);
+        leader = coordinatorContext.getBucketLeaderAndIsr(tb).get().leader();
+        assertThat(leader).isEqualTo(0);
     }
 
     private TableBucketStateMachine createTableBucketStateMachine() {

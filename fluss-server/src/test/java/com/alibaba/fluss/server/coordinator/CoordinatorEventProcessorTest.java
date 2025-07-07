@@ -31,11 +31,14 @@ import com.alibaba.fluss.metadata.TableBucketReplica;
 import com.alibaba.fluss.metadata.TableDescriptor;
 import com.alibaba.fluss.metadata.TablePartition;
 import com.alibaba.fluss.metadata.TablePath;
+import com.alibaba.fluss.rpc.messages.AdjustIsrResponse;
 import com.alibaba.fluss.rpc.messages.CommitKvSnapshotResponse;
 import com.alibaba.fluss.rpc.messages.CommitRemoteLogManifestResponse;
 import com.alibaba.fluss.rpc.messages.NotifyKvSnapshotOffsetRequest;
 import com.alibaba.fluss.rpc.messages.NotifyRemoteLogOffsetsRequest;
 import com.alibaba.fluss.server.coordinator.event.AccessContextEvent;
+import com.alibaba.fluss.server.coordinator.event.AdjustIsrReceivedEvent;
+import com.alibaba.fluss.server.coordinator.event.AutoPreferredReplicaLeaderElection;
 import com.alibaba.fluss.server.coordinator.event.CommitKvSnapshotEvent;
 import com.alibaba.fluss.server.coordinator.event.CommitRemoteLogManifestEvent;
 import com.alibaba.fluss.server.coordinator.event.CoordinatorEventManager;
@@ -60,10 +63,12 @@ import com.alibaba.fluss.server.zk.data.TableAssignment;
 import com.alibaba.fluss.server.zk.data.TabletServerRegistration;
 import com.alibaba.fluss.server.zk.data.ZkData.PartitionIdsZNode;
 import com.alibaba.fluss.server.zk.data.ZkData.TableIdsZNode;
+import com.alibaba.fluss.shaded.guava32.com.google.common.collect.ImmutableMap;
 import com.alibaba.fluss.testutils.common.AllCallbackWrapper;
 import com.alibaba.fluss.types.DataTypes;
 import com.alibaba.fluss.utils.ExceptionUtils;
 import com.alibaba.fluss.utils.concurrent.ExecutorThreadFactory;
+import com.alibaba.fluss.utils.concurrent.FlussScheduler;
 import com.alibaba.fluss.utils.types.Tuple2;
 
 import org.junit.jupiter.api.AfterEach;
@@ -128,6 +133,7 @@ class CoordinatorEventProcessorTest {
 
     private static ZooKeeperClient zookeeperClient;
     private static MetadataManager metadataManager;
+    private static FlussScheduler scheduler;
 
     private CoordinatorEventProcessor eventProcessor;
     private final String defaultDatabase = "db";
@@ -160,6 +166,9 @@ class CoordinatorEventProcessorTest {
                                     new Endpoint("host" + i, 1000, DEFAULT_LISTENER_NAME)),
                             System.currentTimeMillis()));
         }
+
+        scheduler = new FlussScheduler(2);
+        scheduler.startup();
     }
 
     @BeforeEach
@@ -759,6 +768,127 @@ class CoordinatorEventProcessorTest {
         verifyReceiveRequestExceptFor(3, leader, NotifyKvSnapshotOffsetRequest.class);
     }
 
+    @Test
+    void testPreferredLeaderRebalance() throws Exception {
+        // create tablet server 3 and 4
+        ZooKeeperClient[] clients = new ZooKeeperClient[2];
+        for (int i = 0; i < 2; i++) {
+            clients[i] =
+                    ZOO_KEEPER_EXTENSION_WRAPPER
+                            .getCustomExtension()
+                            .createZooKeeperClient(NOPErrorHandler.INSTANCE);
+            clients[i].registerTabletServer(
+                    (i + 3),
+                    new TabletServerRegistration(
+                            "rack" + (i + 3),
+                            Collections.singletonList(
+                                    new Endpoint("host" + (i + 3), 1000, DEFAULT_LISTENER_NAME)),
+                            System.currentTimeMillis()));
+        }
+        initCoordinatorChannel();
+
+        TablePath t1 = TablePath.of(defaultDatabase, "test_preferred_leader_rebalance");
+        final long t1Id =
+                createTable(
+                        t1,
+                        new TabletServerInfo[] {
+                            new TabletServerInfo(2, "rack2"),
+                            new TabletServerInfo(3, "rack3"),
+                            new TabletServerInfo(4, "rack4")
+                        });
+        TableBucket tb0 = new TableBucket(t1Id, 0);
+        TableBucket tb1 = new TableBucket(t1Id, 1);
+        TableBucket tb2 = new TableBucket(t1Id, 2);
+        retryVerifyContext(ctx -> assertThat(ctx.getBucketLeaderAndIsr(tb0)).isNotEmpty());
+        retryVerifyContext(ctx -> assertThat(ctx.getBucketLeaderAndIsr(tb1)).isNotEmpty());
+        retryVerifyContext(ctx -> assertThat(ctx.getBucketLeaderAndIsr(tb2)).isNotEmpty());
+
+        LeaderAndIsr leaderAndIsr0 = zookeeperClient.getLeaderAndIsr(tb0).get();
+        LeaderAndIsr leaderAndIsr1 = zookeeperClient.getLeaderAndIsr(tb1).get();
+        LeaderAndIsr leaderAndIsr2 = zookeeperClient.getLeaderAndIsr(tb2).get();
+
+        // server 3 and 4 down
+        clients[0].close();
+        clients[1].close();
+
+        retryVerifyContext(
+                ctx -> assertThat(ctx.getBucketLeaderAndIsr(tb0).get().leader()).isEqualTo(2));
+        retryVerifyContext(
+                ctx -> assertThat(ctx.getBucketLeaderAndIsr(tb1).get().leader()).isEqualTo(2));
+        retryVerifyContext(
+                ctx -> assertThat(ctx.getBucketLeaderAndIsr(tb2).get().leader()).isEqualTo(2));
+
+        retryVerifyContext(
+                ctx -> assertThat(ctx.getLiveTabletServers().keySet()).doesNotContain(3, 4));
+
+        // assume the server 3 and 4 that comes again
+        TabletServerRegistration server3 =
+                new TabletServerRegistration(
+                        "rack3",
+                        Endpoint.fromListenersString(DEFAULT_LISTENER_NAME + "://host3:1234"),
+                        System.currentTimeMillis());
+        TabletServerRegistration server4 =
+                new TabletServerRegistration(
+                        "rack4",
+                        Endpoint.fromListenersString(DEFAULT_LISTENER_NAME + "://host4:1234"),
+                        System.currentTimeMillis());
+        zookeeperClient.registerTabletServer(3, server3);
+        zookeeperClient.registerTabletServer(4, server4);
+
+        // retry until the tablet server register event is been handled
+        retryVerifyContext(ctx -> assertThat(ctx.liveTabletServerIds()).contains(3, 4));
+
+        // manually adjust isr
+        CompletableFuture<AdjustIsrResponse> response = new CompletableFuture<>();
+        LeaderAndIsr newLeaderAndIsr0 = zookeeperClient.getLeaderAndIsr(tb0).get();
+        LeaderAndIsr newLeaderAndIsr1 = zookeeperClient.getLeaderAndIsr(tb1).get();
+        LeaderAndIsr newLeaderAndIsr2 = zookeeperClient.getLeaderAndIsr(tb2).get();
+        eventProcessor
+                .getCoordinatorEventManager()
+                .put(
+                        new AdjustIsrReceivedEvent(
+                                ImmutableMap.of(
+                                        tb0,
+                                                new LeaderAndIsr(
+                                                        newLeaderAndIsr0.leader(),
+                                                        newLeaderAndIsr0.leaderEpoch(),
+                                                        leaderAndIsr0.isr(),
+                                                        newLeaderAndIsr0.coordinatorEpoch(),
+                                                        newLeaderAndIsr0.bucketEpoch()),
+                                        tb1,
+                                                new LeaderAndIsr(
+                                                        newLeaderAndIsr1.leader(),
+                                                        newLeaderAndIsr1.leaderEpoch(),
+                                                        leaderAndIsr1.isr(),
+                                                        newLeaderAndIsr1.coordinatorEpoch(),
+                                                        newLeaderAndIsr1.bucketEpoch()),
+                                        tb2,
+                                                new LeaderAndIsr(
+                                                        newLeaderAndIsr2.leader(),
+                                                        newLeaderAndIsr2.leaderEpoch(),
+                                                        leaderAndIsr2.isr(),
+                                                        newLeaderAndIsr2.coordinatorEpoch(),
+                                                        newLeaderAndIsr2.bucketEpoch())),
+                                response));
+        response.get();
+
+        // trigger auto leader rebalance
+        eventProcessor.getCoordinatorEventManager().put(new AutoPreferredReplicaLeaderElection());
+
+        retryVerifyContext(
+                ctx ->
+                        assertThat(ctx.getBucketLeaderAndIsr(tb0).get().leader())
+                                .isEqualTo(leaderAndIsr0.leader()));
+        retryVerifyContext(
+                ctx ->
+                        assertThat(ctx.getBucketLeaderAndIsr(tb1).get().leader())
+                                .isEqualTo(leaderAndIsr1.leader()));
+        retryVerifyContext(
+                ctx ->
+                        assertThat(ctx.getBucketLeaderAndIsr(tb2).get().leader())
+                                .isEqualTo(leaderAndIsr2.leader()));
+    }
+
     private CoordinatorEventProcessor buildCoordinatorEventProcessor() {
         return new CoordinatorEventProcessor(
                 zookeeperClient,
@@ -769,7 +899,8 @@ class CoordinatorEventProcessorTest {
                 lakeTableTieringManager,
                 TestingMetricGroups.COORDINATOR_METRICS,
                 new Configuration(),
-                Executors.newFixedThreadPool(1, new ExecutorThreadFactory("test-coordinator-io")));
+                Executors.newFixedThreadPool(1, new ExecutorThreadFactory("test-coordinator-io")),
+                scheduler);
     }
 
     private void initCoordinatorChannel() throws Exception {

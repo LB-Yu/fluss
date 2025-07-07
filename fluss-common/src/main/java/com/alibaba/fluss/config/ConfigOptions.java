@@ -228,6 +228,34 @@ public class ConfigOptions {
     public static final ConfigOption<List<String>> SERVER_SASL_ENABLED_MECHANISMS_CONFIG =
             key("security.sasl.enabled.mechanisms").stringType().asList().noDefaultValue();
 
+    public static final ConfigOption<Integer> LEADER_IMBALANCE_PER_TABLET_SERVER_PERCENTAGE =
+            key("leader.imbalance.per.tablet-server.percentage")
+                    .intType()
+                    .defaultValue(10)
+                    .withDescription(
+                            "The ratio of leader imbalance allowed per tablet server. "
+                                    + "The coordinator would trigger a leader balance if it goes above this value per tablet server. "
+                                    + "The value is specified in percentage.");
+
+    public static final ConfigOption<Integer> LEADER_IMBALANCE_CHECK_INTERVAL_SECONDS =
+            key("leader.imbalance.check.interval.seconds")
+                    .intType()
+                    .defaultValue(300)
+                    .withDeprecatedKeys(
+                            "The frequency with which the replica rebalance check is triggered by the coordinator.");
+
+    public static final ConfigOption<Boolean> AUTO_LEADER_REBALANCE_ENABLE =
+            key("auto.leader.rebalance.enable")
+                    .booleanType()
+                    .defaultValue(true)
+                    .withDescription(
+                            "Enables auto leader balancing. A background thread checks the distribution of replica leaders at regular intervals, "
+                                    + "configurable by "
+                                    + LEADER_IMBALANCE_CHECK_INTERVAL_SECONDS.key()
+                                    + ". If the leader imbalance exceeds "
+                                    + LEADER_IMBALANCE_PER_TABLET_SERVER_PERCENTAGE.key()
+                                    + ", leader rebalance to the preferred leader for replicas is triggered.");
+
     // ------------------------------------------------------------------------
     //  ConfigOptions for Coordinator Server
     // ------------------------------------------------------------------------
