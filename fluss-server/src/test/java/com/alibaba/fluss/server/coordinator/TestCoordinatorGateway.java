@@ -20,62 +20,7 @@ package com.alibaba.fluss.server.coordinator;
 import com.alibaba.fluss.exception.FencedLeaderEpochException;
 import com.alibaba.fluss.metadata.TableBucket;
 import com.alibaba.fluss.rpc.gateway.CoordinatorGateway;
-import com.alibaba.fluss.rpc.messages.AdjustIsrRequest;
-import com.alibaba.fluss.rpc.messages.AdjustIsrResponse;
-import com.alibaba.fluss.rpc.messages.ApiVersionsRequest;
-import com.alibaba.fluss.rpc.messages.ApiVersionsResponse;
-import com.alibaba.fluss.rpc.messages.CommitKvSnapshotRequest;
-import com.alibaba.fluss.rpc.messages.CommitKvSnapshotResponse;
-import com.alibaba.fluss.rpc.messages.CommitLakeTableSnapshotRequest;
-import com.alibaba.fluss.rpc.messages.CommitLakeTableSnapshotResponse;
-import com.alibaba.fluss.rpc.messages.CommitRemoteLogManifestRequest;
-import com.alibaba.fluss.rpc.messages.CommitRemoteLogManifestResponse;
-import com.alibaba.fluss.rpc.messages.CreateAclsRequest;
-import com.alibaba.fluss.rpc.messages.CreateAclsResponse;
-import com.alibaba.fluss.rpc.messages.CreateDatabaseRequest;
-import com.alibaba.fluss.rpc.messages.CreateDatabaseResponse;
-import com.alibaba.fluss.rpc.messages.CreatePartitionRequest;
-import com.alibaba.fluss.rpc.messages.CreatePartitionResponse;
-import com.alibaba.fluss.rpc.messages.CreateTableRequest;
-import com.alibaba.fluss.rpc.messages.CreateTableResponse;
-import com.alibaba.fluss.rpc.messages.DatabaseExistsRequest;
-import com.alibaba.fluss.rpc.messages.DatabaseExistsResponse;
-import com.alibaba.fluss.rpc.messages.DropAclsRequest;
-import com.alibaba.fluss.rpc.messages.DropAclsResponse;
-import com.alibaba.fluss.rpc.messages.DropDatabaseRequest;
-import com.alibaba.fluss.rpc.messages.DropDatabaseResponse;
-import com.alibaba.fluss.rpc.messages.DropPartitionRequest;
-import com.alibaba.fluss.rpc.messages.DropPartitionResponse;
-import com.alibaba.fluss.rpc.messages.DropTableRequest;
-import com.alibaba.fluss.rpc.messages.DropTableResponse;
-import com.alibaba.fluss.rpc.messages.GetDatabaseInfoRequest;
-import com.alibaba.fluss.rpc.messages.GetDatabaseInfoResponse;
-import com.alibaba.fluss.rpc.messages.GetFileSystemSecurityTokenRequest;
-import com.alibaba.fluss.rpc.messages.GetFileSystemSecurityTokenResponse;
-import com.alibaba.fluss.rpc.messages.GetKvSnapshotMetadataRequest;
-import com.alibaba.fluss.rpc.messages.GetKvSnapshotMetadataResponse;
-import com.alibaba.fluss.rpc.messages.GetLatestKvSnapshotsRequest;
-import com.alibaba.fluss.rpc.messages.GetLatestKvSnapshotsResponse;
-import com.alibaba.fluss.rpc.messages.GetLatestLakeSnapshotRequest;
-import com.alibaba.fluss.rpc.messages.GetLatestLakeSnapshotResponse;
-import com.alibaba.fluss.rpc.messages.GetTableInfoRequest;
-import com.alibaba.fluss.rpc.messages.GetTableInfoResponse;
-import com.alibaba.fluss.rpc.messages.GetTableSchemaRequest;
-import com.alibaba.fluss.rpc.messages.GetTableSchemaResponse;
-import com.alibaba.fluss.rpc.messages.LakeTieringHeartbeatRequest;
-import com.alibaba.fluss.rpc.messages.LakeTieringHeartbeatResponse;
-import com.alibaba.fluss.rpc.messages.ListAclsRequest;
-import com.alibaba.fluss.rpc.messages.ListAclsResponse;
-import com.alibaba.fluss.rpc.messages.ListDatabasesRequest;
-import com.alibaba.fluss.rpc.messages.ListDatabasesResponse;
-import com.alibaba.fluss.rpc.messages.ListPartitionInfosRequest;
-import com.alibaba.fluss.rpc.messages.ListPartitionInfosResponse;
-import com.alibaba.fluss.rpc.messages.ListTablesRequest;
-import com.alibaba.fluss.rpc.messages.ListTablesResponse;
-import com.alibaba.fluss.rpc.messages.MetadataRequest;
-import com.alibaba.fluss.rpc.messages.MetadataResponse;
-import com.alibaba.fluss.rpc.messages.TableExistsRequest;
-import com.alibaba.fluss.rpc.messages.TableExistsResponse;
+import com.alibaba.fluss.rpc.messages.*;
 import com.alibaba.fluss.rpc.protocol.ApiError;
 import com.alibaba.fluss.server.entity.AdjustIsrResultForBucket;
 import com.alibaba.fluss.server.entity.CommitRemoteLogManifestData;
@@ -134,6 +79,11 @@ public class TestCoordinatorGateway implements CoordinatorGateway {
 
     @Override
     public CompletableFuture<DropTableResponse> dropTable(DropTableRequest request) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public CompletableFuture<AlterTableBucketResponse> alterTableBucket(AlterTableBucketRequest request) {
         throw new UnsupportedOperationException();
     }
 

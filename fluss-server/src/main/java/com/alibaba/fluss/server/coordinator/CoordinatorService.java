@@ -21,12 +21,7 @@ import com.alibaba.fluss.cluster.ServerType;
 import com.alibaba.fluss.cluster.TabletServerInfo;
 import com.alibaba.fluss.config.ConfigOptions;
 import com.alibaba.fluss.config.Configuration;
-import com.alibaba.fluss.exception.InvalidCoordinatorException;
-import com.alibaba.fluss.exception.InvalidDatabaseException;
-import com.alibaba.fluss.exception.InvalidTableException;
-import com.alibaba.fluss.exception.SecurityDisabledException;
-import com.alibaba.fluss.exception.TableAlreadyExistException;
-import com.alibaba.fluss.exception.TableNotPartitionedException;
+import com.alibaba.fluss.exception.*;
 import com.alibaba.fluss.fs.FileSystem;
 import com.alibaba.fluss.lake.lakestorage.LakeCatalog;
 import com.alibaba.fluss.metadata.DataLakeFormat;
@@ -42,6 +37,8 @@ import com.alibaba.fluss.metadata.TablePath;
 import com.alibaba.fluss.rpc.gateway.CoordinatorGateway;
 import com.alibaba.fluss.rpc.messages.AdjustIsrRequest;
 import com.alibaba.fluss.rpc.messages.AdjustIsrResponse;
+import com.alibaba.fluss.rpc.messages.AlterTableBucketRequest;
+import com.alibaba.fluss.rpc.messages.AlterTableBucketResponse;
 import com.alibaba.fluss.rpc.messages.CommitKvSnapshotRequest;
 import com.alibaba.fluss.rpc.messages.CommitKvSnapshotResponse;
 import com.alibaba.fluss.rpc.messages.CommitLakeTableSnapshotRequest;
@@ -345,6 +342,48 @@ public final class CoordinatorService extends RpcServiceBase implements Coordina
 
         DropTableResponse response = new DropTableResponse();
         metadataManager.dropTable(tablePath, request.isIgnoreIfNotExists());
+        return CompletableFuture.completedFuture(response);
+    }
+
+    @Override
+    public CompletableFuture<AlterTableBucketResponse> alterTableBucket(AlterTableBucketRequest request) {
+        TablePath tablePath = toTablePath(request.getTablePath());
+        if (authorizer != null) {
+            authorizer.authorize(
+                    currentSession(),
+                    OperationType.ALTER,
+                    Resource.table(tablePath.getDatabaseName(), tablePath.getTableName()));
+        }
+
+        AlterTableBucketResponse response = new AlterTableBucketResponse();
+        TableRegistration table = metadataManager.getTableRegistration(tablePath);
+        if (table.isPartitioned()) {
+            return CompletableFuture.completedFuture(response);
+        }
+
+        TableAssignment existingAssignment = metadataManager.getTableAssignment(table.tableId);
+        int oldNumBuckets = existingAssignment.getBuckets().size();
+        int newNumBuckets = request.getBucketNum();
+        int numBucketsIncrement = newNumBuckets - oldNumBuckets;
+        if (numBucketsIncrement < 0) {
+            throw new InvalidBucketsException("Table currently has " + oldNumBuckets + " buckets, which is higher than the requested " + newNumBuckets);
+        } else if (numBucketsIncrement == 0) {
+            throw new InvalidBucketsException("Table already has " + oldNumBuckets + " buckets");
+        }
+
+        int replicaFactor = table.getTableConfig().getReplicationFactor();
+        TabletServerInfo[] servers = metadataCache.getLiveServers();
+        BucketAssignment existingAssignmentBucket0 = existingAssignment.getBucketAssignment(0);
+        int startIndex = Math.max(0, existingAssignmentBucket0.getReplicas().get(0));
+        // TODO: We should prevent adding buckets while table reassignment is in progress.
+        Map<Integer, BucketAssignment> newBucketsAssignment =
+                generateAssignment(
+                        numBucketsIncrement,
+                        replicaFactor,
+                        servers,
+                        oldNumBuckets)
+                        .getBucketAssignments();
+
         return CompletableFuture.completedFuture(response);
     }
 

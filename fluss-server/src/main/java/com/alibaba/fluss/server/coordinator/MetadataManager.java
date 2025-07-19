@@ -329,6 +329,19 @@ public class MetadataManager {
         return optionalTable.get();
     }
 
+    public TableAssignment getTableAssignment(long tableId) {
+        Optional<TableAssignment> optionalTableAssignment;
+        try {
+            optionalTableAssignment = zookeeperClient.getTableAssignment(tableId);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        if (!optionalTableAssignment.isPresent()) {
+            throw new TableNotExistException("Table '" + tableId + "' does not exist.");
+        }
+        return optionalTableAssignment.get();
+    }
+
     public SchemaInfo getLatestSchema(TablePath tablePath) throws SchemaNotExistException {
         final int currentSchemaId;
         try {
@@ -366,6 +379,12 @@ public class MetadataManager {
         return uncheck(
                 () -> zookeeperClient.tableExist(tablePath),
                 String.format("Fail to check the table %s exist or not.", tablePath));
+    }
+
+    public void alterTableBucket(
+            TableAssignment existingBucketsAssignment,
+            TableAssignment newBucketsAssignment) {
+
     }
 
     public long initWriterId() {

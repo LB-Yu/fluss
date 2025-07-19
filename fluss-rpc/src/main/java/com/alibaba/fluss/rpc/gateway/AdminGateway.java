@@ -17,6 +17,8 @@
 
 package com.alibaba.fluss.rpc.gateway;
 
+import com.alibaba.fluss.rpc.messages.AlterTableBucketRequest;
+import com.alibaba.fluss.rpc.messages.AlterTableBucketResponse;
 import com.alibaba.fluss.rpc.messages.CreateAclsRequest;
 import com.alibaba.fluss.rpc.messages.CreateAclsResponse;
 import com.alibaba.fluss.rpc.messages.CreateDatabaseRequest;
@@ -71,6 +73,9 @@ public interface AdminGateway extends AdminReadOnlyGateway {
      */
     @RPC(api = ApiKeys.DROP_TABLE)
     CompletableFuture<DropTableResponse> dropTable(DropTableRequest request);
+
+    @RPC(api = ApiKeys.ALTER_TABLE_BUCKET)
+    CompletableFuture<AlterTableBucketResponse> alterTableBucket(AlterTableBucketRequest request);
 
     /**
      * create a new partition for a partitioned table.

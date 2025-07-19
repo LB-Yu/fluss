@@ -108,6 +108,16 @@ message CreateTableRequest {
 message CreateTableResponse {
 }
 
+// alter table bucket request and response
+message AlterTableBucketRequest {
+  required PbTablePath table_path = 1;
+  required int32 bucket_num = 2;
+  required bool ignore_if_not_exists = 3;
+}
+
+message AlterTableBucketResponse {
+}
+
 // get table request and response
 message GetTableInfoRequest {
   required PbTablePath table_path = 1;
