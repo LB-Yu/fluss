@@ -1,11 +1,12 @@
 /*
- * Copyright (c) 2025 Alibaba Group Holding Ltd.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *    http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -42,22 +43,26 @@ import com.alibaba.fluss.types.DataTypes;
 import org.apache.flink.api.common.RuntimeExecutionMode;
 import org.apache.flink.core.execution.JobClient;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.paimon.Snapshot;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
+import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.options.Options;
+import org.apache.paimon.reader.RecordReader;
+import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.utils.CloseableIterator;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.RegisterExtension;
-
-import javax.annotation.Nullable;
 
 import java.nio.file.Files;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -65,7 +70,7 @@ import java.util.Optional;
 import static com.alibaba.fluss.flink.tiering.source.TieringSourceOptions.POLL_TIERING_TABLE_INTERVAL;
 import static com.alibaba.fluss.testutils.DataTestUtils.row;
 import static com.alibaba.fluss.testutils.common.CommonTestUtils.retry;
-import static com.alibaba.fluss.testutils.common.CommonTestUtils.waitUtil;
+import static com.alibaba.fluss.testutils.common.CommonTestUtils.waitUntil;
 import static com.alibaba.fluss.testutils.common.CommonTestUtils.waitValue;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -163,7 +168,7 @@ public class FlinkPaimonTieringTestBase {
     protected void waitUntilSnapshot(long tableId, int bucketNum, long snapshotId) {
         for (int i = 0; i < bucketNum; i++) {
             TableBucket tableBucket = new TableBucket(tableId, i);
-            FLUSS_CLUSTER_EXTENSION.waitUtilSnapshotFinished(tableBucket, snapshotId);
+            FLUSS_CLUSTER_EXTENSION.waitUntilSnapshotFinished(tableBucket, snapshotId);
         }
     }
 
@@ -284,6 +289,43 @@ public class FlinkPaimonTieringTestBase {
         return createTable(tablePath, tableBuilder.build());
     }
 
+    protected long createFullTypeLogTable(TablePath tablePath, int bucketNum, boolean isPartitioned)
+            throws Exception {
+        Schema.Builder schemaBuilder =
+                Schema.newBuilder()
+                        .column("f_boolean", DataTypes.BOOLEAN())
+                        .column("f_byte", DataTypes.TINYINT())
+                        .column("f_short", DataTypes.SMALLINT())
+                        .column("f_int", DataTypes.INT())
+                        .column("f_long", DataTypes.BIGINT())
+                        .column("f_float", DataTypes.FLOAT())
+                        .column("f_double", DataTypes.DOUBLE())
+                        .column("f_string", DataTypes.STRING())
+                        .column("f_decimal1", DataTypes.DECIMAL(5, 2))
+                        .column("f_decimal2", DataTypes.DECIMAL(20, 0))
+                        .column("f_timestamp_ltz1", DataTypes.TIMESTAMP_LTZ(3))
+                        .column("f_timestamp_ltz2", DataTypes.TIMESTAMP_LTZ(6))
+                        .column("f_timestamp_ntz1", DataTypes.TIMESTAMP(3))
+                        .column("f_timestamp_ntz2", DataTypes.TIMESTAMP(6))
+                        .column("f_binary", DataTypes.BINARY(4));
+
+        TableDescriptor.Builder tableBuilder =
+                TableDescriptor.builder()
+                        .distributedBy(bucketNum, "f_int")
+                        .property(ConfigOptions.TABLE_DATALAKE_ENABLED.key(), "true")
+                        .property(ConfigOptions.TABLE_DATALAKE_FRESHNESS, Duration.ofMillis(500));
+
+        if (isPartitioned) {
+            schemaBuilder.column("p", DataTypes.STRING());
+            tableBuilder.property(ConfigOptions.TABLE_AUTO_PARTITION_ENABLED, true);
+            tableBuilder.partitionedBy("p");
+            tableBuilder.property(
+                    ConfigOptions.TABLE_AUTO_PARTITION_TIME_UNIT, AutoPartitionTimeUnit.YEAR);
+        }
+        tableBuilder.schema(schemaBuilder.build());
+        return createTable(tablePath, tableBuilder.build());
+    }
+
     protected long createPrimaryKeyTable(
             TablePath tablePath, int bucketNum, List<Schema.Column> columns) throws Exception {
         Schema.Builder schemaBuilder =
@@ -316,6 +358,20 @@ public class FlinkPaimonTieringTestBase {
                         .property(ConfigOptions.TABLE_DATALAKE_FRESHNESS, Duration.ofMillis(500))
                         .build();
         return createTable(tablePath, table1Descriptor);
+    }
+
+    protected void dropTable(TablePath tablePath) throws Exception {
+        admin.dropTable(tablePath, false).get();
+        Identifier tableIdentifier = toPaimonIdentifier(tablePath);
+        try {
+            paimonCatalog.dropTable(tableIdentifier, false);
+        } catch (Catalog.TableNotExistException e) {
+            // do nothing, table not exists
+        }
+    }
+
+    private Identifier toPaimonIdentifier(TablePath tablePath) {
+        return Identifier.create(tablePath.getDatabaseName(), tablePath.getTableName());
     }
 
     protected void assertReplicaStatus(
@@ -353,26 +409,26 @@ public class FlinkPaimonTieringTestBase {
                 });
     }
 
-    protected void waitUtilBucketSynced(
+    protected void waitUntilBucketSynced(
             TablePath tablePath, long tableId, int bucketCount, boolean isPartition) {
         if (isPartition) {
             Map<Long, String> partitionById = waitUntilPartitions(tablePath);
             for (Long partitionId : partitionById.keySet()) {
                 for (int i = 0; i < bucketCount; i++) {
                     TableBucket tableBucket = new TableBucket(tableId, partitionId, i);
-                    waitUtilBucketSynced(tableBucket);
+                    waitUntilBucketSynced(tableBucket);
                 }
             }
         } else {
             for (int i = 0; i < bucketCount; i++) {
                 TableBucket tableBucket = new TableBucket(tableId, i);
-                waitUtilBucketSynced(tableBucket);
+                waitUntilBucketSynced(tableBucket);
             }
         }
     }
 
-    protected void waitUtilBucketSynced(TableBucket tb) {
-        waitUtil(
+    protected void waitUntilBucketSynced(TableBucket tb) {
+        waitUntil(
                 () -> {
                     Replica replica = getLeaderReplica(tb);
                     return replica.getLogTablet().getLakeTableSnapshotId() >= 0;
@@ -381,14 +437,42 @@ public class FlinkPaimonTieringTestBase {
                 "bucket " + tb + "not synced");
     }
 
-    protected Object[] rowValues(Object[] values, @Nullable String partition) {
-        if (partition == null) {
-            return values;
-        } else {
-            Object[] newValues = new Object[values.length + 1];
-            System.arraycopy(values, 0, newValues, 0, values.length);
-            newValues[values.length] = partition;
-            return newValues;
+    protected void checkDataInPaimonPrimayKeyTable(
+            TablePath tablePath, List<InternalRow> expectedRows) throws Exception {
+        Iterator<org.apache.paimon.data.InternalRow> paimonRowIterator =
+                getPaimonRowCloseableIterator(tablePath);
+        for (InternalRow expectedRow : expectedRows) {
+            org.apache.paimon.data.InternalRow row = paimonRowIterator.next();
+            assertThat(row.getInt(0)).isEqualTo(expectedRow.getInt(0));
+            assertThat(row.getString(1).toString()).isEqualTo(expectedRow.getString(1).toString());
         }
+    }
+
+    protected CloseableIterator<org.apache.paimon.data.InternalRow> getPaimonRowCloseableIterator(
+            TablePath tablePath) throws Exception {
+        Identifier tableIdentifier =
+                Identifier.create(tablePath.getDatabaseName(), tablePath.getTableName());
+
+        paimonCatalog = getPaimonCatalog();
+
+        FileStoreTable table = (FileStoreTable) paimonCatalog.getTable(tableIdentifier);
+
+        RecordReader<org.apache.paimon.data.InternalRow> reader =
+                table.newRead().createReader(table.newReadBuilder().newScan().plan());
+        return reader.toCloseableIterator();
+    }
+
+    protected void checkSnapshotPropertyInPaimon(
+            TablePath tablePath, Map<String, String> expectedProperties) throws Exception {
+        FileStoreTable table =
+                (FileStoreTable)
+                        getPaimonCatalog()
+                                .getTable(
+                                        Identifier.create(
+                                                tablePath.getDatabaseName(),
+                                                tablePath.getTableName()));
+        Snapshot snapshot = table.snapshotManager().latestSnapshot();
+        assertThat(snapshot).isNotNull();
+        assertThat(snapshot.properties()).isEqualTo(expectedProperties);
     }
 }

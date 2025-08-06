@@ -1,11 +1,12 @@
 /*
- * Copyright (c) 2025 Alibaba Group Holding Ltd.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *    http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -204,7 +205,7 @@ public class TieringTestBase extends AbstractTestBase {
             throws Exception {
         admin.createTable(tablePath, tableDescriptor, true).get();
         long tableId = admin.getTableInfo(tablePath).get().getTableId();
-        FLUSS_CLUSTER_EXTENSION.waitUtilTableReady(tableId);
+        FLUSS_CLUSTER_EXTENSION.waitUntilTableReady(tableId);
         return tableId;
     }
 
@@ -227,7 +228,7 @@ public class TieringTestBase extends AbstractTestBase {
         for (Map.Entry<String, Long> entry : partitionNameByIds.entrySet()) {
             for (int i = 0; i < DEFAULT_BUCKET_NUM; i++) {
                 TableBucket tableBucket = new TableBucket(tableId, entry.getValue(), i);
-                FLUSS_CLUSTER_EXTENSION.waitUtilSnapshotFinished(tableBucket, snapshotId);
+                FLUSS_CLUSTER_EXTENSION.waitUntilSnapshotFinished(tableBucket, snapshotId);
             }
         }
     }
@@ -235,7 +236,7 @@ public class TieringTestBase extends AbstractTestBase {
     protected void waitUntilSnapshot(long tableId, @Nullable Long partitionId, long snapshotId) {
         for (int i = 0; i < DEFAULT_BUCKET_NUM; i++) {
             TableBucket tableBucket = new TableBucket(tableId, partitionId, i);
-            FLUSS_CLUSTER_EXTENSION.waitUtilSnapshotFinished(tableBucket, snapshotId);
+            FLUSS_CLUSTER_EXTENSION.waitUntilSnapshotFinished(tableBucket, snapshotId);
         }
     }
 

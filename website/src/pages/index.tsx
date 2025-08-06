@@ -1,11 +1,12 @@
 /*
- * Copyright (c) 2025 Alibaba Group Holding Ltd.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *    http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -42,7 +43,7 @@ function HomepageHeader() {
 
                     <Link
                         className={clsx("button button--secondary button--lg", styles.buttonWithIcon, styles.buttonWidth)}
-                        to="https://github.com/alibaba/fluss">
+                        to="https://github.com/apache/fluss">
                         <img
                             src="img/github_icon.svg"
                             alt="GitHub"
@@ -53,7 +54,7 @@ function HomepageHeader() {
 
                     <Link
                         className={clsx("button button--secondary button--lg", styles.buttonWithIcon, styles.buttonWidth)}
-                        to="https://join.slack.com/t/fluss-hq/shared_invite/zt-33wlna581-QAooAiCmnYboJS8D_JUcYw">
+                        to="https://join.slack.com/t/apache-fluss/shared_invite/zt-33wlna581-QAooAiCmnYboJS8D_JUcYw">
                         <img
                             src="img/slack_icon.svg"
                             alt="Slack"
@@ -71,7 +72,8 @@ export default function Home(): JSX.Element {
     const {siteConfig} = useDocusaurusContext();
     return (
         <Layout
-            title="Fluss"
+            // leave empty to just display "Apache Fluss (Incubating)" in tab on landing page
+            title=""
             description="Streaming Storage for Real-Time Analytics">
             <HomepageHeader/>
             <main>

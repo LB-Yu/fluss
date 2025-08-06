@@ -1,11 +1,12 @@
 /*
- * Copyright (c) 2025 Alibaba Group Holding Ltd.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *    http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,6 +18,7 @@
 package com.alibaba.fluss.server.zk;
 
 import com.alibaba.fluss.cluster.Endpoint;
+import com.alibaba.fluss.cluster.TabletServerInfo;
 import com.alibaba.fluss.config.ConfigOptions;
 import com.alibaba.fluss.config.Configuration;
 import com.alibaba.fluss.metadata.Schema;
@@ -30,6 +32,7 @@ import com.alibaba.fluss.server.zk.data.BucketAssignment;
 import com.alibaba.fluss.server.zk.data.BucketSnapshot;
 import com.alibaba.fluss.server.zk.data.CoordinatorAddress;
 import com.alibaba.fluss.server.zk.data.LeaderAndIsr;
+import com.alibaba.fluss.server.zk.data.PartitionAssignment;
 import com.alibaba.fluss.server.zk.data.TableAssignment;
 import com.alibaba.fluss.server.zk.data.TableRegistration;
 import com.alibaba.fluss.server.zk.data.TabletServerRegistration;
@@ -56,6 +59,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.alibaba.fluss.server.utils.TableAssignmentUtils.generateAssignment;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -410,8 +414,22 @@ class ZooKeeperClientTest {
         assertThat(partitions).isEmpty();
 
         // test create new partitions
-        zookeeperClient.registerPartition(tablePath, tableId, "p1", 1L);
-        zookeeperClient.registerPartition(tablePath, tableId, "p2", 2L);
+        PartitionAssignment partitionAssignment =
+                new PartitionAssignment(
+                        tableId,
+                        generateAssignment(
+                                        3,
+                                        3,
+                                        new TabletServerInfo[] {
+                                            new TabletServerInfo(0, "rack0"),
+                                            new TabletServerInfo(1, "rack1"),
+                                            new TabletServerInfo(2, "rack2")
+                                        })
+                                .getBucketAssignments());
+        zookeeperClient.registerPartitionAssignmentAndMetadata(
+                1L, "p1", partitionAssignment, tablePath, tableId);
+        zookeeperClient.registerPartitionAssignmentAndMetadata(
+                2L, "p2", partitionAssignment, tablePath, tableId);
 
         // check created partitions
         partitions = zookeeperClient.getPartitions(tablePath);

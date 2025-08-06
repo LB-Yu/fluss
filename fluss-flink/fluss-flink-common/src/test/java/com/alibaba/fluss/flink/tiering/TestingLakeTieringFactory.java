@@ -1,11 +1,12 @@
 /*
- * Copyright (c) 2025 Alibaba Group Holding Ltd.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *    http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -32,6 +33,7 @@ import javax.annotation.Nullable;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /** An implementation of {@link LakeTieringFactory} for testing purpose. */
 public class TestingLakeTieringFactory
@@ -65,8 +67,9 @@ public class TestingLakeTieringFactory
     }
 
     @Override
-    public SimpleVersionedSerializer<TestingCommittable> getCommitableSerializer() {
-        throw new UnsupportedOperationException("method getCommitableSerializer is not supported.");
+    public SimpleVersionedSerializer<TestingCommittable> getCommittableSerializer() {
+        throw new UnsupportedOperationException(
+                "method getCommittableSerializer is not supported.");
     }
 
     private static final class TestingLakeWriter implements LakeWriter<TestingWriteResult> {
@@ -106,7 +109,7 @@ public class TestingLakeTieringFactory
         }
 
         @Override
-        public TestingCommittable toCommitable(List<TestingWriteResult> testingWriteResults)
+        public TestingCommittable toCommittable(List<TestingWriteResult> testingWriteResults)
                 throws IOException {
             List<Integer> writeResults = new ArrayList<>();
             for (TestingWriteResult testingWriteResult : testingWriteResults) {
@@ -116,7 +119,8 @@ public class TestingLakeTieringFactory
         }
 
         @Override
-        public long commit(TestingCommittable committable) throws IOException {
+        public long commit(TestingCommittable committable, Map<String, String> snapshotProperties)
+                throws IOException {
             return ++currentSnapshot;
         }
 

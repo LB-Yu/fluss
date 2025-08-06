@@ -1,11 +1,12 @@
 /*
- * Copyright (c) 2025 Alibaba Group Holding Ltd.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *    http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -20,8 +21,12 @@ import com.alibaba.fluss.config.Configuration;
 import com.alibaba.fluss.metadata.ValidationException;
 import com.alibaba.fluss.security.auth.TestIdentifierAuthenticationPlugin.TestIdentifierClientAuthenticator;
 import com.alibaba.fluss.security.auth.TestIdentifierAuthenticationPlugin.TestIdentifierServerAuthenticator;
+import com.alibaba.fluss.utils.ParentResourceBlockingClassLoader;
+import com.alibaba.fluss.utils.TemporaryClassLoaderContext;
 
 import org.junit.jupiter.api.Test;
+
+import java.net.URL;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -93,5 +98,17 @@ public class AuthenticationFactoryTest {
                                 .get()
                                 .get())
                 .isInstanceOf(TestIdentifierServerAuthenticator.class);
+    }
+
+    @Test
+    void testNotIncludedInThreadContextClassloader() {
+        try (TemporaryClassLoaderContext ignored =
+                TemporaryClassLoaderContext.of(new ParentResourceBlockingClassLoader(new URL[0]))) {
+            Configuration configuration = new Configuration();
+            configuration.setString("client.security.protocol", "SSL_TEST");
+            configuration.setString("security.protocol.map", "FLUSS:SSL_TEST");
+            assertThat(AuthenticationFactory.loadClientAuthenticatorSupplier(configuration).get())
+                    .isInstanceOf(TestIdentifierClientAuthenticator.class);
+        }
     }
 }

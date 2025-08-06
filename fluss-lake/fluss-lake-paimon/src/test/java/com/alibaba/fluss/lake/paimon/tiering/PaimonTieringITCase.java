@@ -1,11 +1,12 @@
 /*
- * Copyright (c) 2025 Alibaba Group Holding Ltd.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *    http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -41,10 +42,12 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
+import static com.alibaba.fluss.lake.committer.BucketOffset.FLUSS_LAKE_SNAP_BUCKET_OFFSET_PROPERTY;
 import static com.alibaba.fluss.testutils.DataTestUtils.row;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -83,6 +86,16 @@ class PaimonTieringITCase extends FlinkPaimonTieringTestBase {
         assertReplicaStatus(t1Bucket, 3);
         // check data in paimon
         checkDataInPaimonPrimayKeyTable(t1, rows);
+        // check snapshot property in paimon
+        Map<String, String> properties =
+                new HashMap<String, String>() {
+                    {
+                        put(
+                                FLUSS_LAKE_SNAP_BUCKET_OFFSET_PROPERTY,
+                                "[{\"bucket_id\":0,\"log_offset\":3}]");
+                    }
+                };
+        checkSnapshotPropertyInPaimon(t1, properties);
 
         // then, create another log table
         TablePath t2 = TablePath.of(DEFAULT_DB, "logTable");
@@ -129,7 +142,7 @@ class PaimonTieringITCase extends FlinkPaimonTieringTestBase {
                         partitionedTablePath, partitionedTableDescriptor, partitionNameByIds);
         long tableId = tableIdAndDescriptor.f0;
 
-        // wait util synced to paimon
+        // wait until synced to paimon
         for (Long partitionId : partitionNameByIds.keySet()) {
             TableBucket tableBucket = new TableBucket(tableId, partitionId, 0);
             assertReplicaStatus(tableBucket, 3);
@@ -145,6 +158,20 @@ class PaimonTieringITCase extends FlinkPaimonTieringTestBase {
                     writtenRowsByPartition.get(partitionName),
                     0);
         }
+
+        properties =
+                new HashMap<String, String>() {
+                    {
+                        put(
+                                FLUSS_LAKE_SNAP_BUCKET_OFFSET_PROPERTY,
+                                "["
+                                        + "{\"partition_id\":0,\"bucket_id\":0,\"log_offset\":3},"
+                                        + "{\"partition_id\":1,\"bucket_id\":0,\"log_offset\":3}"
+                                        + "]");
+                    }
+                };
+        checkSnapshotPropertyInPaimon(partitionedTablePath, properties);
+
         jobClient.cancel().get();
     }
 
@@ -188,17 +215,6 @@ class PaimonTieringITCase extends FlinkPaimonTieringTestBase {
         assertThat(flussRowIterator.hasNext()).isFalse();
     }
 
-    private void checkDataInPaimonPrimayKeyTable(
-            TablePath tablePath, List<InternalRow> expectedRows) throws Exception {
-        Iterator<org.apache.paimon.data.InternalRow> paimonRowIterator =
-                getPaimonRowCloseableIterator(tablePath);
-        for (InternalRow expectedRow : expectedRows) {
-            org.apache.paimon.data.InternalRow row = paimonRowIterator.next();
-            assertThat(row.getInt(0)).isEqualTo(expectedRow.getInt(0));
-            assertThat(row.getString(1).toString()).isEqualTo(expectedRow.getString(1).toString());
-        }
-    }
-
     private void checkDataInPaimonAppendOnlyPartitionedTable(
             TablePath tablePath,
             Map<String, String> partitionSpec,
@@ -218,18 +234,6 @@ class PaimonTieringITCase extends FlinkPaimonTieringTestBase {
             assertThat(row.getLong(4)).isEqualTo(startingOffset++);
         }
         assertThat(flussRowIterator.hasNext()).isFalse();
-    }
-
-    private CloseableIterator<org.apache.paimon.data.InternalRow> getPaimonRowCloseableIterator(
-            TablePath tablePath) throws Exception {
-        Identifier tableIdentifier =
-                Identifier.create(tablePath.getDatabaseName(), tablePath.getTableName());
-
-        FileStoreTable table = (FileStoreTable) paimonCatalog.getTable(tableIdentifier);
-
-        RecordReader<org.apache.paimon.data.InternalRow> reader =
-                table.newRead().createReader(table.newReadBuilder().newScan().plan());
-        return reader.toCloseableIterator();
     }
 
     private CloseableIterator<org.apache.paimon.data.InternalRow> getPaimonRowCloseableIterator(

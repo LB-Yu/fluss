@@ -1,11 +1,12 @@
 /*
- * Copyright (c) 2025 Alibaba Group Holding Ltd.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *    http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -374,7 +375,7 @@ class TableManagerITCase {
         TableDescriptor tableDescriptor = newPartitionedTable().withProperties(options);
         adminGateway.createTable(newCreateTableRequest(tablePath, tableDescriptor, false)).get();
 
-        // wait util partition is created
+        // wait until partition is created
         Map<String, Long> partitions =
                 waitValue(
                         () -> {
@@ -461,11 +462,11 @@ class TableManagerITCase {
         // retry until all replica ready.
         int expectBucketCount = tableDescriptor.getTableDistribution().get().getBucketCount().get();
         for (int i = 0; i < expectBucketCount; i++) {
-            FLUSS_CLUSTER_EXTENSION.waitUtilAllReplicaReady(new TableBucket(tableId, i));
+            FLUSS_CLUSTER_EXTENSION.waitUntilAllReplicaReady(new TableBucket(tableId, i));
         }
 
         // retry to check metadata.
-        FLUSS_CLUSTER_EXTENSION.waitUtilAllGatewayHasSameMetadata();
+        FLUSS_CLUSTER_EXTENSION.waitUntilAllGatewayHasSameMetadata();
         MetadataResponse metadataResponse =
                 gateway.metadata(newMetadataRequest(Collections.singletonList(tablePath))).get();
         // should be no tablet server as we only create tablet service.
@@ -522,7 +523,8 @@ class TableManagerITCase {
                         configuration,
                         new ClientMetricGroup(
                                 MetricRegistry.create(configuration, null),
-                                "fluss-cluster-extension"))) {
+                                "fluss-cluster-extension"),
+                        false)) {
             ServerNode serverNode =
                     FLUSS_CLUSTER_EXTENSION.getCoordinatorServerNode(CLIENT_LISTENER);
             AdminGateway adminGatewayForClient =
@@ -573,7 +575,7 @@ class TableManagerITCase {
 
         for (long partitionId : partitionById.values()) {
             for (int i = 0; i < expectBucketCount; i++) {
-                FLUSS_CLUSTER_EXTENSION.waitUtilAllReplicaReady(
+                FLUSS_CLUSTER_EXTENSION.waitUntilAllReplicaReady(
                         new TableBucket(tableId, partitionId, i));
             }
         }

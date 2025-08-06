@@ -1,11 +1,12 @@
 /*
- * Copyright (c) 2025 Alibaba Group Holding Ltd.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *    http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -304,7 +305,8 @@ public class MetadataManager {
         try {
             optionalTable = zookeeperClient.getTable(tablePath);
         } catch (Exception e) {
-            throw new FlussRuntimeException(String.format("Fail to get table '%s'.", tablePath), e);
+            throw new FlussRuntimeException(
+                    String.format("Failed to get table '%s'.", tablePath), e);
         }
         if (!optionalTable.isPresent()) {
             throw new TableNotExistException("Table '" + tablePath + "' does not exist.");
@@ -437,10 +439,9 @@ public class MetadataManager {
 
         try {
             long partitionId = zookeeperClient.getPartitionIdAndIncrement();
-            // register partition assignments to zk first
-            zookeeperClient.registerPartitionAssignment(partitionId, partitionAssignment);
-            // then register the partition metadata to zk
-            zookeeperClient.registerPartition(tablePath, tableId, partitionName, partitionId);
+            // register partition assignments and partition metadata to zk in transaction
+            zookeeperClient.registerPartitionAssignmentAndMetadata(
+                    partitionId, partitionName, partitionAssignment, tablePath, tableId);
             LOG.info(
                     "Register partition {} to zookeeper for table [{}].", partitionName, tablePath);
         } catch (KeeperException.NodeExistsException nodeExistsException) {

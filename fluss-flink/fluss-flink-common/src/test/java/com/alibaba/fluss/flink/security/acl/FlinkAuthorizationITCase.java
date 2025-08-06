@@ -1,11 +1,12 @@
 /*
- * Copyright (c) 2025 Alibaba Group Holding Ltd.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *    http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -23,10 +24,16 @@ import com.alibaba.fluss.exception.AuthorizationException;
 import com.alibaba.fluss.flink.catalog.FlinkCatalogOptions;
 import com.alibaba.fluss.metadata.DataLakeFormat;
 import com.alibaba.fluss.metadata.TablePath;
+import com.alibaba.fluss.security.acl.AccessControlEntry;
+import com.alibaba.fluss.security.acl.AclBinding;
 import com.alibaba.fluss.security.acl.FlussPrincipal;
 import com.alibaba.fluss.security.acl.OperationType;
+import com.alibaba.fluss.security.acl.PermissionType;
 import com.alibaba.fluss.security.acl.Resource;
+import com.alibaba.fluss.security.auth.sasl.jaas.LoginManager;
 import com.alibaba.fluss.server.testutils.FlussClusterExtension;
+import com.alibaba.fluss.utils.ParentResourceBlockingClassLoader;
+import com.alibaba.fluss.utils.TemporaryClassLoaderContext;
 
 import org.apache.commons.lang3.RandomUtils;
 import org.apache.flink.table.api.EnvironmentSettings;
@@ -42,6 +49,7 @@ import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.net.URL;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collections;
@@ -384,6 +392,28 @@ abstract class FlinkAuthorizationITCase extends AbstractTestBase {
                 Arrays.asList("+I[1, beijing, zhangsan]", "+I[2, shanghai, lisi]"));
     }
 
+    // this test is to mock `--jar` which is not loaded by the app classloader.
+    @Test
+    void testNotIncludedInThreadContextClassloader() throws Exception {
+        try (TemporaryClassLoaderContext ignored =
+                TemporaryClassLoaderContext.of(new ParentResourceBlockingClassLoader(new URL[0]))) {
+            // clear the cache of login context to make sure load the class again.
+            LoginManager.closeAll();
+            tEnv.executeSql(
+                            String.format(
+                                    "create catalog test_classloader_catalog with ('type' = 'fluss', "
+                                            + "'bootstrap.servers' = '%s',"
+                                            + "'client.security.protocol' = 'sasl',"
+                                            + "'client.security.sasl.mechanism' = 'PLAIN', \n"
+                                            + "'client.security.sasl.username' = 'guest', \n"
+                                            + "'client.security.sasl.password' = 'password2' \n"
+                                            + ")",
+                                    String.join(
+                                            ",", clientConf.get(ConfigOptions.BOOTSTRAP_SERVERS))))
+                    .await();
+        }
+    }
+
     void addAcl(Resource resource, OperationType operationType)
             throws ExecutionException, InterruptedException {
         tEnv.executeSql(
@@ -394,6 +424,13 @@ abstract class FlinkAuthorizationITCase extends AbstractTestBase {
                                 String.format("%s:%s", guest.getType(), guest.getName()),
                                 operationType.name()))
                 .await();
+        FLUSS_CLUSTER_EXTENSION.waitUntilAuthenticationSync(
+                Collections.singletonList(
+                        new AclBinding(
+                                resource,
+                                new AccessControlEntry(
+                                        guest, "*", operationType, PermissionType.ALLOW))),
+                true);
     }
 
     void dropAcl(Resource resource, OperationType operationType)
@@ -406,6 +443,13 @@ abstract class FlinkAuthorizationITCase extends AbstractTestBase {
                                 String.format("%s:%s", guest.getType(), guest.getName()),
                                 operationType.name()))
                 .await();
+        FLUSS_CLUSTER_EXTENSION.waitUntilAuthenticationSync(
+                Collections.singletonList(
+                        new AclBinding(
+                                resource,
+                                new AccessControlEntry(
+                                        guest, "*", operationType, PermissionType.ALLOW))),
+                false);
     }
 
     private static Configuration initConfig() {

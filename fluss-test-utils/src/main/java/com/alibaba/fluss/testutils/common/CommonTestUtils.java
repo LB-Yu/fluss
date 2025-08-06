@@ -1,11 +1,12 @@
 /*
- * Copyright (c) 2025 Alibaba Group Holding Ltd.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *    http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -43,11 +44,11 @@ public class CommonTestUtils {
     private static final Logger LOG = LoggerFactory.getLogger(CommonTestUtils.class);
 
     /**
-     * Wait util the given condition is met or timeout.
+     * Wait until the given condition is met or timeout.
      *
-     * <p>Note: use {@code #waitUtil(ThrowingSupplier, Duration, String)} if waiting test to reach a
-     * condition and no assertion is needed. Otherwise, use {@link #retry(Duration, Executable)} if
-     * the there is assertion expected to succeed eventually.
+     * <p>Note: use {@code #waitUntil(ThrowingSupplier, Duration, String)} if waiting test to reach
+     * a condition and no assertion is needed. Otherwise, use {@link #retry(Duration, Executable)}
+     * if the there is assertion expected to succeed eventually.
      *
      * @param condition the condition to wait for.
      * @param timeout the maximum time to wait for the condition to become true.
@@ -55,7 +56,7 @@ public class CommonTestUtils {
      * @param errorMsg the error message to include in the <code>TimeoutException</code> if the
      *     condition was not met before timeout.
      */
-    public static void waitUtil(
+    public static void waitUntil(
             ThrowingSupplier<Boolean> condition,
             Duration timeout,
             Duration pause,
@@ -82,20 +83,20 @@ public class CommonTestUtils {
     }
 
     /**
-     * Wait util the given condition is met or timeout.
+     * Wait until the given condition is met or timeout.
      *
-     * <p>Note: use {@code #waitUtil(ThrowingSupplier, Duration, String)} if waiting test to reach a
-     * condition and no assertion is needed. Otherwise, use {@link #retry(Duration, Executable)} if
-     * the there is assertion expected to succeed eventually.
+     * <p>Note: use {@code #waitUntil(ThrowingSupplier, Duration, String)} if waiting test to reach
+     * a condition and no assertion is needed. Otherwise, use {@link #retry(Duration, Executable)}
+     * if the there is assertion expected to succeed eventually.
      *
      * @param condition the condition to wait for.
      * @param timeout the maximum time to wait for the condition to become true.
      * @param errorMsg the error message to include in the <code>TimeoutException</code> if the
      *     condition was not met before timeout.
      */
-    public static void waitUtil(
+    public static void waitUntil(
             ThrowingSupplier<Boolean> condition, Duration timeout, String errorMsg) {
-        waitUtil(condition, timeout, Duration.ofMillis(1), errorMsg);
+        waitUntil(condition, timeout, Duration.ofMillis(1), errorMsg);
     }
 
     /**
@@ -109,7 +110,7 @@ public class CommonTestUtils {
     public static <T> T waitValue(
             ThrowingSupplier<Optional<T>> supplier, Duration timeout, String errorMsg) {
         AtomicReference<T> result = new AtomicReference<>();
-        waitUtil(
+        waitUntil(
                 () -> {
                     Optional<T> opt = supplier.get();
                     if (opt.isPresent()) {
@@ -130,7 +131,7 @@ public class CommonTestUtils {
      *
      * <p>Note: use {@code retry(Duration, Executable)} if the assertion is expected to succeed
      * eventually. If waiting test to reach a condition and no assertion is needed, use {@link
-     * #waitUtil(ThrowingSupplier, Duration, String)} instead.
+     * #waitUntil(ThrowingSupplier, Duration, String)} instead.
      */
     public static void retry(Duration timeout, Executable assertion) {
         final long maxWaitMs = timeout.toMillis();

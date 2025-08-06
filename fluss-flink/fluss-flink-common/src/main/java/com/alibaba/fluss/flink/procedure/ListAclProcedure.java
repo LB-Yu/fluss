@@ -1,11 +1,12 @@
 /*
- * Copyright (c) 2025 Alibaba Group Holding Ltd.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *    http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -34,6 +35,8 @@ import org.apache.flink.table.procedure.ProcedureContext;
 import javax.annotation.Nullable;
 
 import java.util.Collection;
+
+import static com.alibaba.fluss.security.acl.Resource.FLUSS_CLUSTER;
 
 /** Procedure to list acl. */
 public class ListAclProcedure extends AbstractAclProcedure {
@@ -105,10 +108,14 @@ public class ListAclProcedure extends AbstractAclProcedure {
                 ace.getPrincipal() != null
                         ? (ace.getPrincipal().getType() + ":" + ace.getPrincipal().getName())
                         : null;
+        String resourceName =
+                FLUSS_CLUSTER.equals(resource.getName())
+                        ? "cluster"
+                        : "cluster." + resource.getName();
 
         return String.join(
                 ";",
-                formatEntry("resourceType", resource.getName()),
+                formatEntry("resource", resourceName),
                 formatEntry(
                         "permission",
                         ace.getPermissionType() != null ? ace.getPermissionType().name() : null),

@@ -1,11 +1,12 @@
 /*
- * Copyright (c) 2025 Alibaba Group Holding Ltd.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *    http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -187,16 +188,6 @@ public class ZooKeeperClient implements AutoCloseable {
                 .withMode(CreateMode.PERSISTENT)
                 .forPath(path, TableIdZNode.encode(tableAssignment));
         LOG.info("Registered table assignment {} for table id {}.", tableAssignment, tableId);
-    }
-
-    /** Register partition assignment to ZK. */
-    public void registerPartitionAssignment(
-            long partitionId, PartitionAssignment partitionAssignment) throws Exception {
-        String path = PartitionIdZNode.path(partitionId);
-        zkClient.create()
-                .creatingParentsIfNeeded()
-                .withMode(CreateMode.PERSISTENT)
-                .forPath(path, PartitionIdZNode.encode(partitionAssignment));
     }
 
     /** Get the table assignment in ZK. */
@@ -501,23 +492,68 @@ public class ZooKeeperClient implements AutoCloseable {
         return stat.getNumChildren();
     }
 
-    /** Create a partition for a table in ZK. */
-    public void registerPartition(
-            TablePath tablePath, long tableId, String partitionName, long partitionId)
-            throws Exception {
-        String path = PartitionZNode.path(tablePath, partitionName);
-        zkClient.create()
-                .creatingParentsIfNeeded()
-                .withMode(CreateMode.PERSISTENT)
-                .forPath(path, PartitionZNode.encode(new TablePartition(tableId, partitionId)));
-    }
-
     /** Delete a partition for a table in ZK. */
     public void deletePartition(TablePath tablePath, String partitionName) throws Exception {
         String path = PartitionZNode.path(tablePath, partitionName);
         zkClient.delete().forPath(path);
     }
 
+    /** Register partition assignment and metadata in transaction. */
+    public void registerPartitionAssignmentAndMetadata(
+            long partitionId,
+            String partitionName,
+            PartitionAssignment partitionAssignment,
+            TablePath tablePath,
+            long tableId)
+            throws Exception {
+        // Merge "registerPartitionAssignment()" and "registerPartition()"
+        // into one transaction. This is to avoid the case that the partition assignment is
+        // registered
+        // but the partition metadata is not registered.
+
+        // Create parent dictionary in advance.
+        try {
+            String tabletServerPartitionParentPath = ZkData.PartitionIdsZNode.path();
+            zkClient.create()
+                    .creatingParentsIfNeeded()
+                    .withMode(CreateMode.PERSISTENT)
+                    .forPath(tabletServerPartitionParentPath);
+        } catch (KeeperException.NodeExistsException e) {
+            // ignore
+        }
+        try {
+            String metadataPartitionParentPath = PartitionsZNode.path(tablePath);
+            zkClient.create()
+                    .creatingParentsIfNeeded()
+                    .withMode(CreateMode.PERSISTENT)
+                    .forPath(metadataPartitionParentPath);
+        } catch (KeeperException.NodeExistsException e) {
+            // ignore
+        }
+
+        List<CuratorOp> ops = new ArrayList<>(2);
+        String tabletServerPartitionPath = PartitionIdZNode.path(partitionId);
+        CuratorOp tabletServerPartitionNode =
+                zkClient.transactionOp()
+                        .create()
+                        .withMode(CreateMode.PERSISTENT)
+                        .forPath(
+                                tabletServerPartitionPath,
+                                PartitionIdZNode.encode(partitionAssignment));
+
+        String metadataPath = PartitionZNode.path(tablePath, partitionName);
+        CuratorOp metadataPartitionNode =
+                zkClient.transactionOp()
+                        .create()
+                        .withMode(CreateMode.PERSISTENT)
+                        .forPath(
+                                metadataPath,
+                                PartitionZNode.encode(new TablePartition(tableId, partitionId)));
+
+        ops.add(tabletServerPartitionNode);
+        ops.add(metadataPartitionNode);
+        zkClient.transaction().forOperations(ops);
+    }
     // --------------------------------------------------------------------------------------------
     // Schema
     // --------------------------------------------------------------------------------------------

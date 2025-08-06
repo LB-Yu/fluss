@@ -1,11 +1,12 @@
 /*
- * Copyright (c) 2025 Alibaba Group Holding Ltd.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *    http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -196,7 +197,7 @@ public class FlinkTestBase extends AbstractTestBase {
     protected void waitUntilSnapshot(long tableId, long snapshotId) {
         for (int i = 0; i < DEFAULT_BUCKET_NUM; i++) {
             TableBucket tableBucket = new TableBucket(tableId, i);
-            FLUSS_CLUSTER_EXTENSION.waitUtilSnapshotFinished(tableBucket, snapshotId);
+            FLUSS_CLUSTER_EXTENSION.waitUntilSnapshotFinished(tableBucket, snapshotId);
         }
     }
 
@@ -249,14 +250,14 @@ public class FlinkTestBase extends AbstractTestBase {
                                 new TabletServerInfo(2, "rack2")
                             });
 
-            // register partition assignments
-            zkClient.registerPartitionAssignment(
+            // register partition assignments and metadata
+            zkClient.registerPartitionAssignmentAndMetadata(
                     partitionId,
+                    partition,
                     new PartitionAssignment(
-                            tableInfo.getTableId(), assignment.getBucketAssignments()));
-
-            // register partition
-            zkClient.registerPartition(tablePath, tableInfo.getTableId(), partition, partitionId);
+                            tableInfo.getTableId(), assignment.getBucketAssignments()),
+                    tablePath,
+                    tableInfo.getTableId());
         }
         return newPartitionIds;
     }
@@ -269,7 +270,8 @@ public class FlinkTestBase extends AbstractTestBase {
         }
     }
 
-    protected List<String> writeRowsToPartition(TablePath tablePath, Collection<String> partitions)
+    public static List<String> writeRowsToPartition(
+            Connection connection, TablePath tablePath, Collection<String> partitions)
             throws Exception {
         List<InternalRow> rows = new ArrayList<>();
         List<String> expectedRowValues = new ArrayList<>();
@@ -280,13 +282,14 @@ public class FlinkTestBase extends AbstractTestBase {
             }
         }
         // write records
-        writeRows(tablePath, rows, false);
+        writeRows(connection, tablePath, rows, false);
         return expectedRowValues;
     }
 
-    protected void writeRows(TablePath tablePath, List<InternalRow> rows, boolean append)
+    public static void writeRows(
+            Connection connection, TablePath tablePath, List<InternalRow> rows, boolean append)
             throws Exception {
-        try (Table table = conn.getTable(tablePath)) {
+        try (Table table = connection.getTable(tablePath)) {
             TableWriter tableWriter;
             if (append) {
                 tableWriter = table.newAppend().createWriter();

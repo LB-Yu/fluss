@@ -1,11 +1,12 @@
 /*
- * Copyright (c) 2025 Alibaba Group Holding Ltd.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *    http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -40,6 +41,7 @@ import com.alibaba.fluss.rpc.messages.StopReplicaRequest;
 import com.alibaba.fluss.rpc.metrics.ClientMetricGroup;
 import com.alibaba.fluss.security.acl.AccessControlEntry;
 import com.alibaba.fluss.security.acl.AclBinding;
+import com.alibaba.fluss.server.ServerBase;
 import com.alibaba.fluss.server.authorizer.Authorizer;
 import com.alibaba.fluss.server.authorizer.DefaultAuthorizer;
 import com.alibaba.fluss.server.coordinator.CoordinatorServer;
@@ -62,6 +64,8 @@ import com.alibaba.fluss.server.zk.data.PartitionAssignment;
 import com.alibaba.fluss.server.zk.data.RemoteLogManifestHandle;
 import com.alibaba.fluss.server.zk.data.TableAssignment;
 import com.alibaba.fluss.utils.FileUtils;
+import com.alibaba.fluss.utils.clock.Clock;
+import com.alibaba.fluss.utils.clock.SystemClock;
 
 import org.apache.curator.test.TestingServer;
 import org.junit.jupiter.api.extension.AfterAllCallback;
@@ -78,6 +82,7 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -92,7 +97,7 @@ import static com.alibaba.fluss.server.utils.ServerRpcMessageUtils.makeStopBucke
 import static com.alibaba.fluss.server.utils.ServerRpcMessageUtils.toServerNode;
 import static com.alibaba.fluss.server.zk.ZooKeeperTestUtils.createZooKeeperClient;
 import static com.alibaba.fluss.testutils.common.CommonTestUtils.retry;
-import static com.alibaba.fluss.testutils.common.CommonTestUtils.waitUtil;
+import static com.alibaba.fluss.testutils.common.CommonTestUtils.waitUntil;
 import static com.alibaba.fluss.testutils.common.CommonTestUtils.waitValue;
 import static com.alibaba.fluss.utils.function.FunctionUtils.uncheckedFunction;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -123,6 +128,7 @@ public final class FlussClusterExtension
     private final Map<Integer, TabletServer> tabletServers;
     private final Map<Integer, ServerInfo> tabletServerInfos;
     private final Configuration clusterConf;
+    private final Clock clock;
 
     /** Creates a new {@link Builder} for {@link FlussClusterExtension}. */
     public static Builder builder() {
@@ -133,13 +139,15 @@ public final class FlussClusterExtension
             int numOfTabletServers,
             String coordinatorServerListeners,
             String tabletServerListeners,
-            Configuration clusterConf) {
+            Configuration clusterConf,
+            Clock clock) {
         this.initialNumOfTabletServers = numOfTabletServers;
         this.tabletServers = new HashMap<>(numOfTabletServers);
         this.coordinatorServerListeners = coordinatorServerListeners;
         this.tabletServerListeners = tabletServerListeners;
         this.tabletServerInfos = new HashMap<>();
         this.clusterConf = clusterConf;
+        this.clock = clock;
     }
 
     @Override
@@ -199,12 +207,13 @@ public final class FlussClusterExtension
                 RpcClient.create(
                         conf,
                         new ClientMetricGroup(
-                                MetricRegistry.create(conf, null), "fluss-cluster-extension"));
+                                MetricRegistry.create(conf, null), "fluss-cluster-extension"),
+                        false);
         startCoordinatorServer();
         startTabletServers();
         // wait coordinator knows all tablet servers to make cluster
         // have enough replication factor when creating table.
-        waitUtilAllGatewayHasSameMetadata();
+        waitUntilAllGatewayHasSameMetadata();
     }
 
     public void close() throws Exception {
@@ -306,7 +315,7 @@ public final class FlussClusterExtension
 
         setRemoteDataDir(tabletServerConf);
 
-        TabletServer tabletServer = new TabletServer(tabletServerConf);
+        TabletServer tabletServer = new TabletServer(tabletServerConf, clock);
         tabletServer.start();
         ServerInfo serverInfo =
                 new ServerInfo(
@@ -483,7 +492,7 @@ public final class FlussClusterExtension
      * make sure same server info not to make sure table metadata). This method needs to be called
      * in advance for those ITCase which need to get metadata from server.
      */
-    public void waitUtilAllGatewayHasSameMetadata() {
+    public void waitUntilAllGatewayHasSameMetadata() {
         for (AdminReadOnlyGateway gateway : collectAllRpcGateways()) {
             retry(
                     Duration.ofMinutes(1),
@@ -511,14 +520,7 @@ public final class FlussClusterExtension
     }
 
     /** Wait until all the table assignments buckets are ready for table. */
-    public void waitUtilTableReady(long tableId) {
-        waitUtilTableReadyWithAuthorization(tableId, null);
-    }
-
-    /**
-     * Wait until all the table assignments buckets and required authorization are ready for table.
-     */
-    public void waitUtilTableReadyWithAuthorization(long tableId, @Nullable AclBinding aclBinding) {
+    public void waitUntilTableReady(long tableId) {
         ZooKeeperClient zkClient = getZooKeeperClient();
         retry(
                 Duration.ofMinutes(1),
@@ -527,33 +529,44 @@ public final class FlussClusterExtension
                             zkClient.getTableAssignment(tableId);
                     assertThat(tableAssignmentOpt).isPresent();
                     waitReplicaInAssignmentReady(zkClient, tableAssignmentOpt.get(), tableId, null);
-
-                    if (aclBinding != null) {
-                        getTabletServers()
-                                .forEach(
-                                        ts -> {
-                                            Authorizer authorizer = ts.getAuthorizer();
-                                            assertThat(authorizer).isNotNull();
-                                            AccessControlEntry accessControlEntry =
-                                                    aclBinding.getAccessControlEntry();
-                                            assertThat(
-                                                            ((DefaultAuthorizer) authorizer)
-                                                                    .aclsAllowAccess(
-                                                                            aclBinding
-                                                                                    .getResource(),
-                                                                            accessControlEntry
-                                                                                    .getPrincipal(),
-                                                                            accessControlEntry
-                                                                                    .getOperationType(),
-                                                                            accessControlEntry
-                                                                                    .getHost()))
-                                                    .isTrue();
-                                        });
-                    }
                 });
     }
 
-    public void waitUtilTablePartitionReady(long tableId, long partitionId) {
+    /**
+     * Wait until all authorization are synchronized to all tablet servers.
+     *
+     * @param aclBindings aclBindings to be synchronized.
+     * @param exist whether aclBinding exist.
+     */
+    public void waitUntilAuthenticationSync(Collection<AclBinding> aclBindings, boolean exist) {
+        retry(
+                Duration.ofMinutes(1),
+                () -> {
+                    Set<ServerBase> servers = new HashSet<>(getTabletServers());
+                    servers.add(getCoordinatorServer());
+                    servers.forEach(
+                            ts -> {
+                                Authorizer authorizer = ts.getAuthorizer();
+                                assertThat(authorizer).isNotNull();
+                                for (AclBinding aclBinding : aclBindings) {
+                                    AccessControlEntry accessControlEntry =
+                                            aclBinding.getAccessControlEntry();
+                                    assertThat(
+                                                    ((DefaultAuthorizer) authorizer)
+                                                            .aclsAllowAccess(
+                                                                    aclBinding.getResource(),
+                                                                    accessControlEntry
+                                                                            .getPrincipal(),
+                                                                    accessControlEntry
+                                                                            .getOperationType(),
+                                                                    accessControlEntry.getHost()))
+                                            .isEqualTo(exist);
+                                }
+                            });
+                });
+    }
+
+    public void waitUntilTablePartitionReady(long tableId, long partitionId) {
         ZooKeeperClient zkClient = getZooKeeperClient();
         retry(
                 Duration.ofMinutes(1),
@@ -587,7 +600,7 @@ public final class FlussClusterExtension
     }
 
     /** Wait until the input replica is kicked out of isr. */
-    public void waitUtilReplicaShrinkFromIsr(TableBucket tableBucket, int replicaId) {
+    public void waitUntilReplicaShrinkFromIsr(TableBucket tableBucket, int replicaId) {
         ZooKeeperClient zkClient = getZooKeeperClient();
         retry(
                 Duration.ofMinutes(1),
@@ -600,7 +613,7 @@ public final class FlussClusterExtension
     }
 
     /** Wait until the input replica is expended into isr. */
-    public void waitUtilReplicaExpandToIsr(TableBucket tableBucket, int replicaId) {
+    public void waitUntilReplicaExpandToIsr(TableBucket tableBucket, int replicaId) {
         ZooKeeperClient zkClient = getZooKeeperClient();
         retry(
                 Duration.ofMinutes(1),
@@ -613,7 +626,7 @@ public final class FlussClusterExtension
     }
 
     /** Wait until all the replicas are ready if we have multi replica for one table bucket. */
-    public void waitUtilAllReplicaReady(TableBucket tableBucket) {
+    public void waitUntilAllReplicaReady(TableBucket tableBucket) {
         ZooKeeperClient zkClient = getZooKeeperClient();
         retry(
                 Duration.ofMinutes(1),
@@ -647,7 +660,7 @@ public final class FlussClusterExtension
      * least one log segment has been copied to remote, but it does not ensure that all log segments
      * have been copied to remote.
      */
-    public void waitUtilSomeLogSegmentsCopyToRemote(TableBucket tableBucket) {
+    public void waitUntilSomeLogSegmentsCopyToRemote(TableBucket tableBucket) {
         ZooKeeperClient zkClient = getZooKeeperClient();
         retry(
                 Duration.ofMinutes(2),
@@ -658,7 +671,7 @@ public final class FlussClusterExtension
                 });
     }
 
-    public CompletedSnapshot waitUtilSnapshotFinished(TableBucket tableBucket, long snapshotId) {
+    public CompletedSnapshot waitUntilSnapshotFinished(TableBucket tableBucket, long snapshotId) {
         ZooKeeperClient zkClient = getZooKeeperClient();
         return waitValue(
                 () -> {
@@ -750,7 +763,7 @@ public final class FlussClusterExtension
 
     public Map<String, Long> waitUntilPartitionAllReady(TablePath tablePath) {
         int preCreatePartitions = ConfigOptions.TABLE_AUTO_PARTITION_NUM_PRECREATE.defaultValue();
-        // wait util table partition is created
+        // wait until table partition is created
         return waitUntilPartitionsCreated(tablePath, preCreatePartitions);
     }
 
@@ -774,7 +787,7 @@ public final class FlussClusterExtension
     }
 
     public void waitUntilPartitionsDropped(TablePath tablePath, List<String> droppedPartitions) {
-        waitUtil(
+        waitUntil(
                 () -> {
                     Map<String, Long> partitions =
                             zooKeeperClient.getPartitionNameAndIds(tablePath);
@@ -822,6 +835,7 @@ public final class FlussClusterExtension
         private int numOfTabletServers = 1;
         private String tabletServerListeners = DEFAULT_LISTENERS;
         private String coordinatorServerListeners = DEFAULT_LISTENERS;
+        private Clock clock = SystemClock.getInstance();
 
         private final Configuration clusterConf = new Configuration();
 
@@ -855,12 +869,19 @@ public final class FlussClusterExtension
             return this;
         }
 
+        /** Sets the clock of fluss cluster. */
+        public Builder setClock(Clock clock) {
+            this.clock = clock;
+            return this;
+        }
+
         public FlussClusterExtension build() {
             return new FlussClusterExtension(
                     numOfTabletServers,
                     coordinatorServerListeners,
                     tabletServerListeners,
-                    clusterConf);
+                    clusterConf,
+                    clock);
         }
     }
 }

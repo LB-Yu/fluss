@@ -1,11 +1,12 @@
 /*
- * Copyright (c) 2025 Alibaba Group Holding Ltd.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *    http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -33,8 +34,8 @@ public interface Lookuper {
      * Lookups certain row from the given lookup key.
      *
      * <p>The lookup key must be a primary key if the lookuper is a Primary Key Lookuper (created by
-     * {@code table.newLookuper().create()}), or be the prefix key if the lookuper is a Prefix Key
-     * Lookuper (created by {@code table.newLookuper().withLookupColumns(prefixKeys).create()}).
+     * {@code table.newLookup().createLookuper()}), or be the prefix key if the lookuper is a Prefix
+     * Key Lookuper (created by {@code table.newLookup().lookupBy(prefixKeys).createLookuper()}).
      *
      * @param lookupKey the lookup key.
      * @return the result of lookup.

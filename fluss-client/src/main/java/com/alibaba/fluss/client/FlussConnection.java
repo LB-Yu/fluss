@@ -1,11 +1,12 @@
 /*
- * Copyright (c) 2025 Alibaba Group Holding Ltd.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *    http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -78,7 +79,7 @@ public final class FlussConnection implements Connection {
         String clientId = conf.getString(ConfigOptions.CLIENT_ID);
         this.metricRegistry = metricRegistry;
         this.clientMetricGroup = new ClientMetricGroup(metricRegistry, clientId);
-        this.rpcClient = RpcClient.create(conf, clientMetricGroup);
+        this.rpcClient = RpcClient.create(conf, clientMetricGroup, false);
 
         // TODO this maybe remove after we introduce client metadata.
         this.metadataUpdater = new MetadataUpdater(conf, rpcClient);

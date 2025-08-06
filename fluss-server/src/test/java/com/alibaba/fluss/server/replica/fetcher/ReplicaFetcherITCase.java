@@ -1,11 +1,12 @@
 /*
- * Copyright (c) 2025 Alibaba Group Holding Ltd.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *    http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -26,7 +27,7 @@ import com.alibaba.fluss.rpc.entity.FetchLogResultForBucket;
 import com.alibaba.fluss.rpc.gateway.TabletServerGateway;
 import com.alibaba.fluss.rpc.messages.PbPutKvRespForBucket;
 import com.alibaba.fluss.rpc.messages.PutKvResponse;
-import com.alibaba.fluss.server.entity.FetchData;
+import com.alibaba.fluss.server.entity.FetchReqInfo;
 import com.alibaba.fluss.server.log.FetchParams;
 import com.alibaba.fluss.server.replica.Replica;
 import com.alibaba.fluss.server.replica.ReplicaManager;
@@ -97,13 +98,13 @@ public class ReplicaFetcherITCase {
 
         // wait until all the gateway has same metadata because the follower fetcher manager need
         // to get the leader address from server metadata while make follower.
-        FLUSS_CLUSTER_EXTENSION.waitUtilAllGatewayHasSameMetadata();
+        FLUSS_CLUSTER_EXTENSION.waitUntilAllGatewayHasSameMetadata();
 
         long tableId = createTable(FLUSS_CLUSTER_EXTENSION, DATA1_TABLE_PATH, tableDescriptor);
         int bucketId = 0;
         TableBucket tb = new TableBucket(tableId, bucketId);
 
-        FLUSS_CLUSTER_EXTENSION.waitUtilAllReplicaReady(tb);
+        FLUSS_CLUSTER_EXTENSION.waitUntilAllReplicaReady(tb);
 
         int leader = FLUSS_CLUSTER_EXTENSION.waitAndGetLeader(tb);
         TabletServerGateway leaderGateWay =
@@ -139,7 +140,7 @@ public class ReplicaFetcherITCase {
 
             ReplicaManager replicaManager =
                     FLUSS_CLUSTER_EXTENSION.getTabletServerById(followId).getReplicaManager();
-            // wait util follower highWaterMark equals leader.
+            // wait until follower highWaterMark equals leader.
             retry(
                     Duration.ofMinutes(1),
                     () ->
@@ -155,7 +156,7 @@ public class ReplicaFetcherITCase {
             // mock client fetch from follower.
             replicaManager.fetchLogRecords(
                     new FetchParams(-1, false, Integer.MAX_VALUE, -1, -1),
-                    Collections.singletonMap(tb, new FetchData(tableId, 0L, 1024 * 1024)),
+                    Collections.singletonMap(tb, new FetchReqInfo(tableId, 0L, 1024 * 1024)),
                     future::complete);
             Map<TableBucket, FetchLogResultForBucket> result = future.get();
             assertThat(result.size()).isEqualTo(1);
@@ -171,7 +172,7 @@ public class ReplicaFetcherITCase {
     void testPutKvNeedAck() throws Exception {
         // wait until all the gateway has same metadata because the follower fetcher manager need
         // to get the leader address from server metadata while make follower.
-        FLUSS_CLUSTER_EXTENSION.waitUtilAllGatewayHasSameMetadata();
+        FLUSS_CLUSTER_EXTENSION.waitUntilAllGatewayHasSameMetadata();
 
         long tableId =
                 createTable(
@@ -179,7 +180,7 @@ public class ReplicaFetcherITCase {
         int bucketId = 0;
         TableBucket tb = new TableBucket(tableId, bucketId);
 
-        FLUSS_CLUSTER_EXTENSION.waitUtilAllReplicaReady(tb);
+        FLUSS_CLUSTER_EXTENSION.waitUntilAllReplicaReady(tb);
 
         int leader = FLUSS_CLUSTER_EXTENSION.waitAndGetLeader(tb);
         TabletServerGateway leaderGateWay =
@@ -214,7 +215,7 @@ public class ReplicaFetcherITCase {
             ReplicaManager replicaManager =
                     FLUSS_CLUSTER_EXTENSION.getTabletServerById(followId).getReplicaManager();
 
-            // wait util follower highWaterMark equals leader. So we can fetch log from follower
+            // wait until follower highWaterMark equals leader. So we can fetch log from follower
             // before highWaterMark.
             retry(
                     Duration.ofMinutes(1),
@@ -231,7 +232,7 @@ public class ReplicaFetcherITCase {
             // mock client fetch from follower.
             replicaManager.fetchLogRecords(
                     new FetchParams(-1, false, Integer.MAX_VALUE, -1, -1),
-                    Collections.singletonMap(tb, new FetchData(tableId, 0L, 1024 * 1024)),
+                    Collections.singletonMap(tb, new FetchReqInfo(tableId, 0L, 1024 * 1024)),
                     future::complete);
             Map<TableBucket, FetchLogResultForBucket> result = future.get();
             assertThat(result.size()).isEqualTo(1);
@@ -253,7 +254,7 @@ public class ReplicaFetcherITCase {
         int bucketId = 0;
         TableBucket tb = new TableBucket(tableId, bucketId);
 
-        FLUSS_CLUSTER_EXTENSION.waitUtilAllReplicaReady(tb);
+        FLUSS_CLUSTER_EXTENSION.waitUntilAllReplicaReady(tb);
 
         // let's kill a non leader server
         int leader = FLUSS_CLUSTER_EXTENSION.waitAndGetLeader(tb);
@@ -285,7 +286,7 @@ public class ReplicaFetcherITCase {
         CompletableFuture<PutKvResponse> putResponse =
                 leaderGateWay.putKv(newPutKvRequest(tableId, bucketId, -1, kvRecords));
 
-        // wait util the log has been written
+        // wait until the log has been written
         Replica replica = FLUSS_CLUSTER_EXTENSION.waitAndGetLeaderReplica(tb);
         retry(
                 Duration.ofMinutes(1),
@@ -317,7 +318,7 @@ public class ReplicaFetcherITCase {
         FLUSS_CLUSTER_EXTENSION.notifyLeaderAndIsr(
                 followerToStop, DATA1_TABLE_PATH, tb, newLeaderAndIsr, Arrays.asList(0, 1, 2));
 
-        // wait util the put future is done
+        // wait until the put future is done
         putResponse.get();
 
         // then we can check all the value

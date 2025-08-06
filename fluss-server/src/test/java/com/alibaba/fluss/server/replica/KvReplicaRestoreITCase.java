@@ -1,11 +1,12 @@
 /*
- * Copyright (c) 2025 Alibaba Group Holding Ltd.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *    http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -52,7 +53,7 @@ import static com.alibaba.fluss.testutils.DataTestUtils.genKvRecordBatch;
 import static com.alibaba.fluss.testutils.DataTestUtils.genKvRecords;
 import static com.alibaba.fluss.testutils.DataTestUtils.getKeyValuePairs;
 import static com.alibaba.fluss.testutils.DataTestUtils.toKvRecordBatch;
-import static com.alibaba.fluss.testutils.common.CommonTestUtils.waitUtil;
+import static com.alibaba.fluss.testutils.common.CommonTestUtils.waitUntil;
 
 /** The IT case for the restoring of kv replica. */
 class KvReplicaRestoreITCase {
@@ -102,7 +103,7 @@ class KvReplicaRestoreITCase {
         // wait for snapshot finish so that we can restore from snapshot
         for (TableBucket tableBucket : tableBuckets) {
             final long snapshot1Id = 0;
-            waitUtil(
+            waitUntil(
                     () -> completedSnapshotHandleStore.get(tableBucket, snapshot1Id).isPresent(),
                     Duration.ofMinutes(2),
                     "Fail to wait for the snapshot 0 for bucket " + tableBucket);
@@ -127,7 +128,7 @@ class KvReplicaRestoreITCase {
 
         // wait for the replica to restore in another server
         AtomicInteger newLeaderServer = new AtomicInteger(-1);
-        waitUtil(
+        waitUntil(
                 () -> {
                     int restoreServer = FLUSS_CLUSTER_EXTENSION.waitAndGetLeader(tableBucket);
                     if (restoreServer != leaderServer) {
@@ -150,8 +151,8 @@ class KvReplicaRestoreITCase {
         // once restore in another server, it should also restore the records to kv
         List<Tuple2<byte[], byte[]>> expectedKeyValues = getKeyValuePairs(records);
 
-        // wait util we can lookup the last record from the kv
-        waitUtil(
+        // wait until we can lookup the last record from the kv
+        waitUntil(
                 () -> {
                     try {
                         PbLookupRespForBucket pbLookupRespForBucket =

@@ -1,11 +1,12 @@
 /*
- * Copyright (c) 2025 Alibaba Group Holding Ltd.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *    http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,16 +17,19 @@
 
 package com.alibaba.fluss.flink.source;
 
+import com.alibaba.fluss.client.Connection;
+import com.alibaba.fluss.client.ConnectionFactory;
 import com.alibaba.fluss.client.admin.Admin;
 import com.alibaba.fluss.client.metadata.KvSnapshots;
 import com.alibaba.fluss.client.table.Table;
 import com.alibaba.fluss.client.table.writer.UpsertWriter;
 import com.alibaba.fluss.config.ConfigOptions;
-import com.alibaba.fluss.flink.utils.FlinkTestBase;
+import com.alibaba.fluss.config.Configuration;
 import com.alibaba.fluss.metadata.TablePath;
 import com.alibaba.fluss.row.GenericRow;
 import com.alibaba.fluss.row.InternalRow;
-import com.alibaba.fluss.types.RowType;
+import com.alibaba.fluss.server.testutils.FlussClusterExtension;
+import com.alibaba.fluss.utils.clock.ManualClock;
 
 import org.apache.commons.lang3.RandomUtils;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
@@ -38,11 +42,14 @@ import org.apache.flink.table.api.EnvironmentSettings;
 import org.apache.flink.table.api.Schema;
 import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
 import org.apache.flink.table.api.config.ExecutionConfigOptions;
+import org.apache.flink.test.util.AbstractTestBase;
 import org.apache.flink.types.Row;
 import org.apache.flink.util.CloseableIterator;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -64,19 +71,51 @@ import java.util.stream.Stream;
 
 import static com.alibaba.fluss.flink.FlinkConnectorOptions.BOOTSTRAP_SERVERS;
 import static com.alibaba.fluss.flink.source.testutils.FlinkRowAssertionsUtils.assertResultsIgnoreOrder;
+import static com.alibaba.fluss.flink.utils.FlinkTestBase.waitUntilPartitions;
+import static com.alibaba.fluss.flink.utils.FlinkTestBase.writeRows;
+import static com.alibaba.fluss.flink.utils.FlinkTestBase.writeRowsToPartition;
 import static com.alibaba.fluss.server.testutils.FlussClusterExtension.BUILTIN_DATABASE;
 import static com.alibaba.fluss.testutils.DataTestUtils.row;
-import static com.alibaba.fluss.testutils.common.CommonTestUtils.waitUtil;
+import static com.alibaba.fluss.testutils.common.CommonTestUtils.waitUntil;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** IT case for using flink sql to read fluss table. */
-abstract class FlinkTableSourceITCase extends FlinkTestBase {
+abstract class FlinkTableSourceITCase extends AbstractTestBase {
+    protected static final ManualClock CLOCK = new ManualClock();
+
+    @RegisterExtension
+    public static final FlussClusterExtension FLUSS_CLUSTER_EXTENSION =
+            FlussClusterExtension.builder()
+                    .setClusterConf(
+                            new Configuration()
+                                    // set snapshot interval to 1s for testing purposes
+                                    .set(ConfigOptions.KV_SNAPSHOT_INTERVAL, Duration.ofSeconds(1))
+                                    // not to clean snapshots for test purpose
+                                    .set(
+                                            ConfigOptions.KV_MAX_RETAINED_SNAPSHOTS,
+                                            Integer.MAX_VALUE))
+                    .setNumOfTabletServers(3)
+                    .setClock(CLOCK)
+                    .build();
 
     static final String CATALOG_NAME = "testcatalog";
     static final String DEFAULT_DB = "defaultdb";
     protected StreamExecutionEnvironment execEnv;
     protected StreamTableEnvironment tEnv;
+    protected static Connection conn;
+    protected static Admin admin;
+
+    protected static Configuration clientConf;
+    protected static String bootstrapServers;
+
+    @BeforeAll
+    protected static void beforeAll() {
+        clientConf = FLUSS_CLUSTER_EXTENSION.getClientConfig();
+        bootstrapServers = FLUSS_CLUSTER_EXTENSION.getBootstrapServers();
+        conn = ConnectionFactory.createConnection(clientConf);
+        admin = conn.getAdmin();
+    }
 
     @BeforeEach
     void before() {
@@ -119,9 +158,9 @@ abstract class FlinkTableSourceITCase extends FlinkTestBase {
         List<InternalRow> rows = Arrays.asList(row(1, "v1"), row(2, "v2"), row(3, "v3"));
 
         // write records
-        writeRows(tablePath, rows, false);
+        writeRows(conn, tablePath, rows, false);
 
-        waitUtilAllBucketFinishSnapshot(admin, tablePath);
+        waitUntilAllBucketFinishSnapshot(admin, tablePath);
 
         List<String> expectedRows = Arrays.asList("+I[1, v1]", "+I[2, v2]", "+I[3, v3]");
 
@@ -138,9 +177,9 @@ abstract class FlinkTableSourceITCase extends FlinkTestBase {
         List<InternalRow> rows = Arrays.asList(row(1, "v1"), row(2, "v2"), row(3, "v3"));
 
         // write records
-        writeRows(tablePath, rows, false);
+        writeRows(conn, tablePath, rows, false);
 
-        waitUtilAllBucketFinishSnapshot(admin, tablePath);
+        waitUntilAllBucketFinishSnapshot(admin, tablePath);
 
         List<String> expectedRows = Arrays.asList("+I[1, v1]", "+I[2, v2]", "+I[3, v3]");
 
@@ -163,7 +202,7 @@ abstract class FlinkTableSourceITCase extends FlinkTestBase {
         List<InternalRow> rows = Arrays.asList(row(1, "v1"), row(2, "v2"), row(3, "v3"));
 
         // write records
-        writeRows(tablePath, rows, true);
+        writeRows(conn, tablePath, rows, true);
 
         List<String> expected = Arrays.asList("+I[1, v1]", "+I[2, v2]", "+I[3, v3]");
         try (org.apache.flink.util.CloseableIterator<Row> rowIter =
@@ -200,7 +239,7 @@ abstract class FlinkTableSourceITCase extends FlinkTestBase {
                         row(8, "v8", 800L, 8000, 800, 8000L),
                         row(9, "v9", 900L, 9000, 900, 9000L),
                         row(10, "v10", 1000L, 10000, 1000, 10000L));
-        writeRows(tablePath, rows, true);
+        writeRows(conn, tablePath, rows, true);
 
         // projection + reorder.
         String query = "select b, d, c from " + tableName;
@@ -265,11 +304,11 @@ abstract class FlinkTableSourceITCase extends FlinkTestBase {
             if (!testPkLog) {
                 // write records and wait snapshot before collect job start,
                 // to make sure reading from kv snapshot
-                writeRows(tablePath, rows, false);
-                waitUtilAllBucketFinishSnapshot(admin, TablePath.of(DEFAULT_DB, tableName));
+                writeRows(conn, tablePath, rows, false);
+                waitUntilAllBucketFinishSnapshot(admin, TablePath.of(DEFAULT_DB, tableName));
             }
         } else {
-            writeRows(tablePath, rows, true);
+            writeRows(conn, tablePath, rows, true);
         }
 
         String query = "select b, a, c from " + tableName;
@@ -299,7 +338,7 @@ abstract class FlinkTableSourceITCase extends FlinkTestBase {
             if (testPkLog) {
                 // delay the write after collect job start,
                 // to make sure reading from log instead of snapshot
-                writeRows(tablePath, rows, false);
+                writeRows(conn, tablePath, rows, false);
             }
             for (int i = 0; i < expectRecords; i++) {
                 Row r = rowIter.next();
@@ -319,9 +358,9 @@ abstract class FlinkTableSourceITCase extends FlinkTestBase {
         List<InternalRow> rows = Arrays.asList(row(1, "v1"), row(2, "v2"), row(3, "v3"));
 
         // write records
-        writeRows(tablePath, rows, false);
+        writeRows(conn, tablePath, rows, false);
 
-        waitUtilAllBucketFinishSnapshot(admin, tablePath);
+        waitUntilAllBucketFinishSnapshot(admin, tablePath);
 
         List<String> expectedRows = Arrays.asList("+I[1, v1]", "+I[2, v2]", "+I[3, v3]");
 
@@ -338,7 +377,7 @@ abstract class FlinkTableSourceITCase extends FlinkTestBase {
                         "+U[2, v2]",
                         "-U[3, v3]",
                         "+U[3, v3]");
-        writeRows(tablePath, rows, false);
+        writeRows(conn, tablePath, rows, false);
         assertResultsIgnoreOrder(rowIter, expectedRows, true);
     }
 
@@ -383,7 +422,9 @@ abstract class FlinkTableSourceITCase extends FlinkTestBase {
                         rowWithPartition(new Object[] {4, "v4", 400L, 4000}, partitionName),
                         rowWithPartition(new Object[] {5, "v5", 500L, 5000}, partitionName));
 
-        writeRows(tablePath, rows1, true);
+        writeRows(conn, tablePath, rows1, true);
+        CLOCK.advanceTime(Duration.ofMillis(100L));
+        long timestamp = CLOCK.milliseconds();
 
         List<InternalRow> rows2 =
                 Arrays.asList(
@@ -393,7 +434,7 @@ abstract class FlinkTableSourceITCase extends FlinkTestBase {
                         rowWithPartition(new Object[] {9, "v9", 900L, 9000}, partitionName),
                         rowWithPartition(new Object[] {10, "v10", 1000L, 10000}, partitionName));
         // for second batch, we don't wait snapshot finish.
-        writeRows(tablePath, rows2, true);
+        writeRows(conn, tablePath, rows2, true);
 
         // 1. read log table with scan.startup.mode='full'
         String options = " /*+ OPTIONS('scan.startup.mode' = 'full') */";
@@ -418,10 +459,17 @@ abstract class FlinkTableSourceITCase extends FlinkTestBase {
         assertQueryResult(query, expected);
 
         // 3. read log table with scan.startup.mode='timestamp'
+        expected =
+                Arrays.asList(
+                        "+I[6, v6, 600, 6000]",
+                        "+I[7, v7, 700, 7000]",
+                        "+I[8, v8, 800, 8000]",
+                        "+I[9, v9, 900, 9000]",
+                        "+I[10, v10, 1000, 10000]");
         options =
                 String.format(
                         " /*+ OPTIONS('scan.startup.mode' = 'timestamp', 'scan.startup.timestamp' ='%d') */",
-                        1000);
+                        timestamp);
         query = "select a, b, c, d from " + tableName + options;
         assertQueryResult(query, expected);
     }
@@ -436,8 +484,8 @@ abstract class FlinkTableSourceITCase extends FlinkTestBase {
                 Arrays.asList(row(1, "v1"), row(2, "v2"), row(3, "v3"), row(3, "v33"));
 
         // write records and wait generate snapshot.
-        writeRows(tablePath, rows1, false);
-        waitUtilAllBucketFinishSnapshot(admin, tablePath);
+        writeRows(conn, tablePath, rows1, false);
+        waitUntilAllBucketFinishSnapshot(admin, tablePath);
 
         List<InternalRow> rows2 = Arrays.asList(row(1, "v11"), row(2, "v22"), row(4, "v4"));
 
@@ -459,7 +507,7 @@ abstract class FlinkTableSourceITCase extends FlinkTestBase {
             List<String> actual = new ArrayList<>(expectRecords);
             // delay to write after collect job start, to make sure reading from log instead of
             // snapshot
-            writeRows(tablePath, rows2, false);
+            writeRows(conn, tablePath, rows2, false);
             for (int i = 0; i < expectRecords; i++) {
                 Row r = rowIter.next();
                 String row = r.toString();
@@ -481,6 +529,7 @@ abstract class FlinkTableSourceITCase extends FlinkTestBase {
     @MethodSource("readKvTableScanStartupModeArgs")
     void testReadKvTableWithEarliestAndTimestampScanStartupMode(String mode, boolean isPartitioned)
             throws Exception {
+        long timestamp = CLOCK.milliseconds();
         String tableName = mode + "_test_" + (isPartitioned ? "partitioned" : "non_partitioned");
         TablePath tablePath = TablePath.of(DEFAULT_DB, tableName);
         String partitionName = null;
@@ -504,8 +553,6 @@ abstract class FlinkTableSourceITCase extends FlinkTestBase {
             partitionName = partitionNameById.values().iterator().next();
         }
 
-        RowType dataType = conn.getTable(tablePath).getTableInfo().getRowType();
-
         List<InternalRow> rows1 =
                 Arrays.asList(
                         rowWithPartition(new Object[] {1, "v1"}, partitionName),
@@ -514,24 +561,27 @@ abstract class FlinkTableSourceITCase extends FlinkTestBase {
                         rowWithPartition(new Object[] {3, "v33"}, partitionName));
 
         // write records and wait generate snapshot.
-        writeRows(tablePath, rows1, false);
+        writeRows(conn, tablePath, rows1, false);
         if (partitionName == null) {
-            waitUtilAllBucketFinishSnapshot(admin, tablePath);
+            waitUntilAllBucketFinishSnapshot(admin, tablePath);
         } else {
-            waitUtilAllBucketFinishSnapshot(admin, tablePath, Collections.singleton(partitionName));
+            waitUntilAllBucketFinishSnapshot(
+                    admin, tablePath, Collections.singleton(partitionName));
         }
+        CLOCK.advanceTime(Duration.ofMillis(100));
 
         List<InternalRow> rows2 =
                 Arrays.asList(
                         rowWithPartition(new Object[] {1, "v11"}, partitionName),
                         rowWithPartition(new Object[] {2, "v22"}, partitionName),
                         rowWithPartition(new Object[] {4, "v4"}, partitionName));
-        writeRows(tablePath, rows2, false);
+        writeRows(conn, tablePath, rows2, false);
+        CLOCK.advanceTime(Duration.ofMillis(100));
 
         String options =
                 String.format(
-                        " /*+ OPTIONS('scan.startup.mode' = '%s', 'scan.startup.timestamp' = '1000') */",
-                        mode);
+                        " /*+ OPTIONS('scan.startup.mode' = '%s', 'scan.startup.timestamp' = '%s') */",
+                        mode, timestamp);
         String query = "select a, b from " + tableName + options;
         List<String> expected =
                 Arrays.asList(
@@ -595,8 +645,8 @@ abstract class FlinkTableSourceITCase extends FlinkTestBase {
         }
 
         List<String> expectedRowValues =
-                writeRowsToPartition(tablePath, partitionNameById.values());
-        waitUtilAllBucketFinishSnapshot(admin, tablePath, partitionNameById.values());
+                writeRowsToPartition(conn, tablePath, partitionNameById.values());
+        waitUntilAllBucketFinishSnapshot(admin, tablePath, partitionNameById.values());
 
         org.apache.flink.util.CloseableIterator<Row> rowIter =
                 tEnv.executeSql(String.format("select * from %s", tableName)).collect();
@@ -606,7 +656,7 @@ abstract class FlinkTableSourceITCase extends FlinkTestBase {
         tEnv.executeSql(String.format("alter table %s add partition (c = '2000')", tableName));
         tEnv.executeSql(String.format("alter table %s add partition (c = '2001')", tableName));
         // write data to the new partitions
-        expectedRowValues = writeRowsToPartition(tablePath, Arrays.asList("2000", "2001"));
+        expectedRowValues = writeRowsToPartition(conn, tablePath, Arrays.asList("2000", "2001"));
         assertResultsIgnoreOrder(rowIter, expectedRowValues, true);
     }
 
@@ -618,10 +668,10 @@ abstract class FlinkTableSourceITCase extends FlinkTestBase {
         // write first bath records
         List<InternalRow> rows = Arrays.asList(row(1, "v1"), row(2, "v2"), row(3, "v3"));
 
-        writeRows(tablePath, rows, true);
-        Thread.sleep(100);
+        writeRows(conn, tablePath, rows, true);
+        CLOCK.advanceTime(Duration.ofMillis(100L));
         // startup time between write first and second batch records.
-        long currentTimeMillis = System.currentTimeMillis();
+        long currentTimeMillis = CLOCK.milliseconds();
 
         // startup timestamp is larger than current time.
         assertThatThrownBy(
@@ -643,10 +693,10 @@ abstract class FlinkTableSourceITCase extends FlinkTestBase {
                                         "select * from timestamp_table /*+ OPTIONS('scan.startup.mode' = 'timestamp', 'scan.startup.timestamp' = '%s') */ ",
                                         currentTimeMillis))
                         .collect()) {
-            Thread.sleep(100);
+            CLOCK.advanceTime(Duration.ofMillis(100L));
             // write second batch record.
             rows = Arrays.asList(row(4, "v4"), row(5, "v5"), row(6, "v6"));
-            writeRows(tablePath, rows, true);
+            writeRows(conn, tablePath, rows, true);
             List<String> expected = Arrays.asList("+I[4, v4]", "+I[5, v5]", "+I[6, v6]");
             int expectRecords = expected.size();
             List<String> actual = new ArrayList<>(expectRecords);
@@ -939,10 +989,10 @@ abstract class FlinkTableSourceITCase extends FlinkTestBase {
         tEnv.executeSql("alter table partitioned_table add partition (c=2026)");
 
         List<String> expectedRowValues =
-                writeRowsToPartition(tablePath, Arrays.asList("2025", "2026")).stream()
+                writeRowsToPartition(conn, tablePath, Arrays.asList("2025", "2026")).stream()
                         .filter(s -> s.contains("2025"))
                         .collect(Collectors.toList());
-        waitUtilAllBucketFinishSnapshot(admin, tablePath, Arrays.asList("2025", "2026"));
+        waitUntilAllBucketFinishSnapshot(admin, tablePath, Arrays.asList("2025", "2026"));
 
         String plan = tEnv.explainSql("select * from partitioned_table where c ='2025'");
         assertThat(plan)
@@ -974,7 +1024,7 @@ abstract class FlinkTableSourceITCase extends FlinkTestBase {
                         .stream()
                         .filter(s -> s.contains("2025"))
                         .collect(Collectors.toList());
-        waitUtilAllBucketFinishSnapshot(
+        waitUntilAllBucketFinishSnapshot(
                 admin, tablePath, Arrays.asList("2025$1", "2025$2", "2025$2"));
 
         String plan = tEnv.explainSql("select * from multi_partitioned_table where c ='2025'");
@@ -997,7 +1047,7 @@ abstract class FlinkTableSourceITCase extends FlinkTestBase {
                         .stream()
                         .filter(s -> s.contains("2025"))
                         .collect(Collectors.toList());
-        waitUtilAllBucketFinishSnapshot(admin, tablePath, Arrays.asList("2025$3", "2026$2"));
+        waitUntilAllBucketFinishSnapshot(admin, tablePath, Arrays.asList("2025$3", "2026$2"));
         assertResultsIgnoreOrder(rowIter, expectedRowValues, true);
 
         String plan2 =
@@ -1034,14 +1084,14 @@ abstract class FlinkTableSourceITCase extends FlinkTestBase {
                 expectedRowValues.add(String.format("+I[%d, 2025, %d]", i, i * 100));
             }
         }
-        writeRows(tablePath, rows, false);
+        writeRows(conn, tablePath, rows, false);
 
         for (int i = 0; i < 10; i++) {
             rows.add(row(i, "v" + i, "2026", i * 100));
         }
 
-        writeRows(tablePath, rows, false);
-        waitUtilAllBucketFinishSnapshot(admin, tablePath, Arrays.asList("2025", "2026"));
+        writeRows(conn, tablePath, rows, false);
+        waitUntilAllBucketFinishSnapshot(admin, tablePath, Arrays.asList("2025", "2026"));
 
         String plan =
                 tEnv.explainSql(
@@ -1071,8 +1121,8 @@ abstract class FlinkTableSourceITCase extends FlinkTestBase {
         tEnv.executeSql("alter table partitioned_table_no_filter add partition (c=2026)");
 
         List<String> expectedRowValues =
-                writeRowsToPartition(tablePath, Arrays.asList("2025", "2026"));
-        waitUtilAllBucketFinishSnapshot(admin, tablePath, Arrays.asList("2025", "2026"));
+                writeRowsToPartition(conn, tablePath, Arrays.asList("2025", "2026"));
+        waitUntilAllBucketFinishSnapshot(admin, tablePath, Arrays.asList("2025", "2026"));
 
         org.apache.flink.util.CloseableIterator<Row> rowIter =
                 tEnv.executeSql("select * from partitioned_table_no_filter").collect();
@@ -1096,7 +1146,7 @@ abstract class FlinkTableSourceITCase extends FlinkTestBase {
             }
         }
 
-        writeRows(tablePath, rows, false);
+        writeRows(conn, tablePath, rows, false);
 
         return expectedRowValues;
     }
@@ -1234,8 +1284,8 @@ abstract class FlinkTableSourceITCase extends FlinkTestBase {
         return tableName;
     }
 
-    private void waitUtilAllBucketFinishSnapshot(Admin admin, TablePath tablePath) {
-        waitUtil(
+    private void waitUntilAllBucketFinishSnapshot(Admin admin, TablePath tablePath) {
+        waitUntil(
                 () -> {
                     KvSnapshots snapshots = admin.getLatestKvSnapshots(tablePath).get();
                     for (int bucketId : snapshots.getBucketIds()) {
@@ -1246,12 +1296,12 @@ abstract class FlinkTableSourceITCase extends FlinkTestBase {
                     return true;
                 },
                 Duration.ofMinutes(1),
-                "Fail to wait util all bucket finish snapshot");
+                "Fail to wait until all bucket finish snapshot");
     }
 
-    private void waitUtilAllBucketFinishSnapshot(
+    private void waitUntilAllBucketFinishSnapshot(
             Admin admin, TablePath tablePath, Collection<String> partitions) {
-        waitUtil(
+        waitUntil(
                 () -> {
                     for (String partition : partitions) {
                         KvSnapshots snapshots =
@@ -1265,7 +1315,7 @@ abstract class FlinkTableSourceITCase extends FlinkTestBase {
                     return true;
                 },
                 Duration.ofMinutes(1),
-                "Fail to wait util all bucket finish snapshot");
+                "Fail to wait until all bucket finish snapshot");
     }
 
     private void assertQueryResult(String query, List<String> expected) throws Exception {

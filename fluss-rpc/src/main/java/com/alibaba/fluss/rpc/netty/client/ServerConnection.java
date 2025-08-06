@@ -1,11 +1,12 @@
 /*
- * Copyright (c) 2025 Alibaba Group Holding Ltd.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *    http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -101,13 +102,14 @@ final class ServerConnection {
             Bootstrap bootstrap,
             ServerNode node,
             ClientMetricGroup clientMetricGroup,
-            ClientAuthenticator authenticator) {
+            ClientAuthenticator authenticator,
+            boolean isInnerClient) {
         this.node = node;
         this.state = ConnectionState.CONNECTING;
         this.connectionMetricGroup = clientMetricGroup.createConnectionMetricGroup(node.uid());
         bootstrap
                 .connect(node.host(), node.port())
-                .addListener((ChannelFutureListener) this::establishConnection);
+                .addListener(future -> establishConnection((ChannelFuture) future, isInnerClient));
         this.authenticator = authenticator;
         this.backoff = new ExponentialBackoff(100L, 2, 5000L, 0.2);
     }
@@ -259,13 +261,15 @@ final class ServerConnection {
 
     // ------------------------------------------------------------------------------------------
 
-    private void establishConnection(ChannelFuture future) {
+    private void establishConnection(ChannelFuture future, boolean isInnerClient) {
         synchronized (lock) {
             if (future.isSuccess()) {
                 LOG.debug("Established connection to server {}.", node);
                 channel = future.channel();
                 channel.pipeline()
-                        .addLast("handler", new NettyClientHandler(new ResponseCallback()));
+                        .addLast(
+                                "handler",
+                                new NettyClientHandler(new ResponseCallback(), isInnerClient));
                 // start checking api versions
                 switchState(ConnectionState.CHECKING_API_VERSIONS);
                 // TODO: set correct client software name and version, used for metrics in server

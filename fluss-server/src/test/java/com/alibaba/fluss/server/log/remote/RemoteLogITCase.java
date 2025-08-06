@@ -1,11 +1,12 @@
 /*
- * Copyright (c) 2025 Alibaba Group Holding Ltd.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *    http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -27,7 +28,7 @@ import com.alibaba.fluss.rpc.entity.FetchLogResultForBucket;
 import com.alibaba.fluss.rpc.gateway.CoordinatorGateway;
 import com.alibaba.fluss.rpc.gateway.TabletServerGateway;
 import com.alibaba.fluss.rpc.protocol.ApiError;
-import com.alibaba.fluss.server.entity.FetchData;
+import com.alibaba.fluss.server.entity.FetchReqInfo;
 import com.alibaba.fluss.server.log.FetchParams;
 import com.alibaba.fluss.server.tablet.TabletServer;
 import com.alibaba.fluss.server.testutils.FlussClusterExtension;
@@ -68,7 +69,7 @@ public class RemoteLogITCase {
         long tableId =
                 createTable(FLUSS_CLUSTER_EXTENSION, DATA1_TABLE_PATH, DATA1_TABLE_DESCRIPTOR);
         TableBucket tb = new TableBucket(tableId, 0);
-        FLUSS_CLUSTER_EXTENSION.waitUtilAllReplicaReady(tb);
+        FLUSS_CLUSTER_EXTENSION.waitUntilAllReplicaReady(tb);
         return tb;
     }
 
@@ -87,7 +88,7 @@ public class RemoteLogITCase {
                     0,
                     i * 10L);
         }
-        FLUSS_CLUSTER_EXTENSION.waitUtilSomeLogSegmentsCopyToRemote(
+        FLUSS_CLUSTER_EXTENSION.waitUntilSomeLogSegmentsCopyToRemote(
                 new TableBucket(tb.getTableId(), 0));
     }
 
@@ -131,7 +132,7 @@ public class RemoteLogITCase {
                 .getReplicaManager()
                 .fetchLogRecords(
                         new FetchParams(-1, Integer.MAX_VALUE),
-                        Collections.singletonMap(tb, new FetchData(tableId, 0, 10240)),
+                        Collections.singletonMap(tb, new FetchReqInfo(tableId, 0, 10240)),
                         future::complete);
 
         Map<TableBucket, FetchLogResultForBucket> result = future.get();
@@ -160,7 +161,7 @@ public class RemoteLogITCase {
                 createTable(FLUSS_CLUSTER_EXTENSION, DATA1_TABLE_PATH, DATA1_TABLE_DESCRIPTOR);
         TableBucket tb = new TableBucket(tableId, 0);
 
-        FLUSS_CLUSTER_EXTENSION.waitUtilAllReplicaReady(tb);
+        FLUSS_CLUSTER_EXTENSION.waitUntilAllReplicaReady(tb);
         int leader = FLUSS_CLUSTER_EXTENSION.waitAndGetLeader(tb);
         int follower;
         for (int i = 0; true; i++) {
@@ -192,12 +193,12 @@ public class RemoteLogITCase {
                     i * 10L);
         }
 
-        FLUSS_CLUSTER_EXTENSION.waitUtilReplicaShrinkFromIsr(tb, follower);
-        FLUSS_CLUSTER_EXTENSION.waitUtilSomeLogSegmentsCopyToRemote(tb);
+        FLUSS_CLUSTER_EXTENSION.waitUntilReplicaShrinkFromIsr(tb, follower);
+        FLUSS_CLUSTER_EXTENSION.waitUntilSomeLogSegmentsCopyToRemote(tb);
 
         // restart follower
         FLUSS_CLUSTER_EXTENSION.startTabletServer(follower);
-        FLUSS_CLUSTER_EXTENSION.waitUtilReplicaExpandToIsr(tb, follower);
+        FLUSS_CLUSTER_EXTENSION.waitUntilReplicaExpandToIsr(tb, follower);
     }
 
     private static Configuration initConfig() {

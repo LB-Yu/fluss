@@ -1,11 +1,12 @@
 /*
- * Copyright (c) 2025 Alibaba Group Holding Ltd.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *    http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -54,7 +55,8 @@ public class FlussTableLakeSnapshotCommitter implements AutoCloseable {
         String clientId = flussConf.getString(ConfigOptions.CLIENT_ID);
         MetricRegistry metricRegistry = MetricRegistry.create(flussConf, null);
         // don't care about metrics, but pass a ClientMetricGroup to make compiler happy
-        rpcClient = RpcClient.create(flussConf, new ClientMetricGroup(metricRegistry, clientId));
+        rpcClient =
+                RpcClient.create(flussConf, new ClientMetricGroup(metricRegistry, clientId), false);
         MetadataUpdater metadataUpdater = new MetadataUpdater(flussConf, rpcClient);
         this.coordinatorGateway =
                 GatewayClientProxy.createGatewayProxy(
@@ -83,18 +85,14 @@ public class FlussTableLakeSnapshotCommitter implements AutoCloseable {
         // construct lake snapshot to commit to Fluss
         FlussTableLakeSnapshot flussTableLakeSnapshot =
                 new FlussTableLakeSnapshot(tableId, committedLakeSnapshot.getLakeSnapshotId());
-        for (Map.Entry<Tuple2<String, Integer>, Long> entry :
+        for (Map.Entry<Tuple2<Long, Integer>, Long> entry :
                 committedLakeSnapshot.getLogEndOffsets().entrySet()) {
-            Tuple2<String, Integer> partitionBucket = entry.getKey();
+            Tuple2<Long, Integer> partitionBucket = entry.getKey();
             TableBucket tableBucket;
             if (partitionBucket.f0 == null) {
                 tableBucket = new TableBucket(tableId, partitionBucket.f1);
             } else {
-                String partitionName = partitionBucket.f0;
-                // todo: remove this
-                // in paimon 1.12, we can store this offsets(including partitionId) into snapshot
-                // properties, then, we won't need to get partitionId from partition name
-                Long partitionId = partitionIdByName.get(partitionName);
+                Long partitionId = partitionBucket.f0;
                 if (partitionId != null) {
                     tableBucket = new TableBucket(tableId, partitionId, partitionBucket.f1);
                 } else {

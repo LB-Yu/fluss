@@ -1,11 +1,12 @@
 /*
- * Copyright (c) 2025 Alibaba Group Holding Ltd.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *    http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -65,7 +66,7 @@ public class PaimonLakeWriter implements LakeWriter<PaimonWriteResult> {
         try {
             recordWriter.write(record);
         } catch (Exception e) {
-            throw new IOException("Fail to write Fluss record to Paimon.", e);
+            throw new IOException("Failed to write Fluss record to Paimon.", e);
         }
     }
 
@@ -75,7 +76,7 @@ public class PaimonLakeWriter implements LakeWriter<PaimonWriteResult> {
         try {
             commitMessage = recordWriter.complete();
         } catch (Exception e) {
-            throw new IOException("Fail to complete Paimon write.", e);
+            throw new IOException("Failed to complete Paimon write.", e);
         }
         return new PaimonWriteResult(commitMessage);
     }
@@ -90,7 +91,7 @@ public class PaimonLakeWriter implements LakeWriter<PaimonWriteResult> {
                 paimonCatalog.close();
             }
         } catch (Exception e) {
-            throw new IOException("Fail to close PaimonLakeWriter.", e);
+            throw new IOException("Failed to close PaimonLakeWriter.", e);
         }
     }
 
@@ -98,7 +99,7 @@ public class PaimonLakeWriter implements LakeWriter<PaimonWriteResult> {
         try {
             return (FileStoreTable) paimonCatalog.getTable(toPaimon(tablePath));
         } catch (Exception e) {
-            throw new IOException("Fail to get table " + tablePath + " in Paimon.");
+            throw new IOException("Failed to get table " + tablePath + " in Paimon.", e);
         }
     }
 }

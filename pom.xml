@@ -1,10 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
- Copyright (c) 2025 Alibaba Group Holding Ltd.
-
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
+ Licensed to the Apache Software Foundation (ASF) under one
+ or more contributor license agreements.  See the NOTICE file
+ distributed with this work for additional information
+ regarding copyright ownership.  The ASF licenses this file
+ to you under the Apache License, Version 2.0 (the
+ "License"); you may not use this file except in compliance
+ with the License.  You may obtain a copy of the License at
 
       http://www.apache.org/licenses/LICENSE-2.0
 
@@ -71,7 +73,7 @@
         <module>fluss-server</module>
         <module>fluss-flink</module>
         <module>fluss-protogen</module>
-        <module>fluss-benchmark</module>
+        <module>fluss-jmh</module>
         <module>fluss-lake</module>
         <module>fluss-kafka</module>
         <module>tools/ci/fluss-ci-tools</module>
@@ -96,7 +98,9 @@
         <curator.version>5.4.0</curator.version>
         <netty.version>4.1.104</netty.version>
         <arrow.version>15.0.0</arrow.version>
-        <paimon.version>1.0.1</paimon.version>
+        <paimon.version>1.2.0</paimon.version>
+        <!--    todo: Revisit to add support as per Iceberg 1.9.1 post #1195 merge for Java 11 support-->
+        <iceberg.version>1.4.3</iceberg.version>
 
         <fluss.hadoop.version>2.10.2</fluss.hadoop.version>
         <frocksdb.version>6.20.3-ververica-2.0</frocksdb.version>
@@ -118,13 +122,14 @@
         <spotless.delimiter>package</spotless.delimiter>
         <spotless.license.header>
             /*
-            * Copyright (c) 2025 Alibaba Group Holding Ltd.
+            * Licensed to the Apache Software Foundation (ASF) under one or more
+            * contributor license agreements.  See the NOTICE file distributed with
+            * this work for additional information regarding copyright ownership.
+            * The ASF licenses this file to You under the Apache License, Version 2.0
+            * (the "License"); you may not use this file except in compliance with
+            * the License.  You may obtain a copy of the License at
             *
-            * Licensed under the Apache License, Version 2.0 (the "License");
-            * you may not use this file except in compliance with the License.
-            * You may obtain a copy of the License at
-            *
-            *      http://www.apache.org/licenses/LICENSE-2.0
+            *    http://www.apache.org/licenses/LICENSE-2.0
             *
             * Unless required by applicable law or agreed to in writing, software
             * distributed under the License is distributed on an "AS IS" BASIS,
@@ -399,7 +404,7 @@
             <dependency>
                 <groupId>org.apache.commons</groupId>
                 <artifactId>commons-lang3</artifactId>
-                <version>3.12.0</version>
+                <version>3.18.0</version>
             </dependency>
 
             <dependency>
@@ -529,50 +534,44 @@
                     <consoleOutput>true</consoleOutput>
                     <excludeSubProjects>false</excludeSubProjects>
                     <numUnapprovedLicenses>0</numUnapprovedLicenses>
-                    <addDefaultLicenses>false</addDefaultLicenses>
-                    <addDefaultLicenseMatchers>false</addDefaultLicenseMatchers>
-                    <families>
-                        <family>
-                            <id>AC</id>
-                            <name>Alibaba Copyright</name>
-                        </family>
-                    </families>
                     <licenses>
                         <!-- Enforce this license:
-                            Copyright (c) 2025 Alibaba Group Holding Ltd.
-
-                            Licensed under the Apache License, Version 2.0 (the "License");
-                            you may not use this file except in compliance with the License.
-                            You may obtain a copy of the License at
-
-                                 http://www.apache.org/licenses/LICENSE-2.0
-
-                            Unless required by applicable law or agreed to in writing, software
-                            distributed under the License is distributed on an "AS IS" BASIS,
-                            WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-                            See the License for the specific language governing permissions and
-                            limitations under the License.
+                            Licensed to the Apache Software Foundation (ASF) under one
+                            or more contributor license agreements.  See the NOTICE file
+                            distributed with this work for additional information
+                            regarding copyright ownership.  The ASF licenses this file
+                            to you under the Apache License, Version 2.0 (the
+                            "License"); you may not use this file except in compliance
+                            with the License.  You may obtain a copy of the License at
+                              http://www.apache.org/licenses/LICENSE-2.0
+                            Unless required by applicable law or agreed to in writing,
+                            software distributed under the License is distributed on an
+                            "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+                            KIND, either express or implied.  See the License for the
+                            specific language governing permissions and limitations
+                            under the License.
                         -->
-                        <license>
-                            <family>AC</family>
-                            <all>
-                                <text>Copyright (c) 2025 Alibaba Group Holding Ltd.</text>
-                                <text>Licensed under the Apache License, Version 2.0 (the "License");</text>
-                            </all>
+                        <license implementation="org.apache.rat.analysis.license.SimplePatternBasedLicense">
+                            <licenseFamilyCategory>AL2</licenseFamilyCategory>
+                            <licenseFamilyName>Apache License 2.0</licenseFamilyName>
+                            <patterns>
+                                <pattern>Licensed to the Apache Software Foundation (ASF) under one</pattern>
+                            </patterns>
                         </license>
                     </licenses>
-                    <approvedLicenses>
-                        <id>AC</id>
-                    </approvedLicenses>
+                    <licenseFamilies>
+                        <licenseFamily implementation="org.apache.rat.license.SimpleLicenseFamily">
+                            <familyName>Apache License 2.0</familyName>
+                        </licenseFamily>
+                    </licenseFamilies>
                     <excludes>
                         <!-- Additional files like .gitignore etc.-->
                         <exclude>**/.*/**</exclude>
                         <exclude>**/*.prefs</exclude>
                         <exclude>**/*.log</exclude>
-                        <!-- Administrative files in the main trunk. -->
-                        <exclude>**/README.md</exclude>
-                        <exclude>**/CODE_OF_CONDUCT.md</exclude>
-                        <exclude>.github/**</exclude>
+                        <!-- Documentation files in the main trunk. -->
+                        <exclude>**/*.md</exclude>
+                        <exclude>**/*.mdx</exclude>
                         <!-- IDE files. -->
                         <exclude>**/*.iml</exclude>
                         <exclude>**/.idea/**</exclude>
@@ -987,6 +986,13 @@
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-enforcer-plugin</artifactId>
                     <version>3.1.0</version>
+                </plugin>
+
+                <!-- Pin the version of the maven surefire plugin -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <version>3.0.0-M5</version>
                 </plugin>
 
                 <!-- Pin the version of the maven shade plugin -->

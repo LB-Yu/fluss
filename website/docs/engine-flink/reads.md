@@ -4,31 +4,15 @@ title: Flink Reads
 sidebar_position: 4
 ---
 
-<!--
- Copyright (c) 2025 Alibaba Group Holding Ltd.
-
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
-
-      http://www.apache.org/licenses/LICENSE-2.0
-
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
--->
-
 # Flink Reads
 Fluss supports streaming and batch read with [Apache Flink](https://flink.apache.org/)'s SQL & Table API. Execute the following SQL command to switch execution mode from streaming to batch, and vice versa:
 ```sql title="Flink SQL"
--- Execute the flink job in streaming mode for current session context
+-- Execute the Flink job in streaming mode for current session context
 SET 'execution.runtime-mode' = 'streaming';
 ```
 
 ```sql title="Flink SQL"
--- Execute the flink job in batch mode for current session context
+-- Execute the Flink job in batch mode for current session context
 SET 'execution.runtime-mode' = 'batch';
 ```
 
@@ -66,7 +50,7 @@ Benchmark results show that column pruning can reach 10x read performance improv
 
 **1. Create a table**
 ```sql title="Flink SQL"
-CREATE TABLE `testcatalog`.`testdb`.`log_table` (
+CREATE TABLE `log_table` (
     `c_custkey` INT NOT NULL,
     `c_name` STRING NOT NULL,
     `c_address` STRING NOT NULL,
@@ -80,19 +64,19 @@ CREATE TABLE `testcatalog`.`testdb`.`log_table` (
 
 **2. Query a single column:**
 ```sql title="Flink SQL"
-SELECT `c_name` FROM `testcatalog`.`testdb`.`log_table`;
+SELECT `c_name` FROM `log_table`;
 ```
 
 **3. Verify with `EXPLAIN`:**
 ```sql title="Flink SQL"
-EXPLAIN SELECT `c_name` FROM `testcatalog`.`testdb`.`log_table`;
+EXPLAIN SELECT `c_name` FROM `log_table`;
 ```
 
 **Output:**
 
 ```
 == Optimized Execution Plan ==
-TableSourceScan(table=[[testcatalog, testdb, log_table, project=[c_name]]], fields=[c_name])
+TableSourceScan(table=[[fluss_catalog, fluss, log_table, project=[c_name]]], fields=[c_name])
 ```
 
 This confirms that only the `c_name` column is being read from storage.
@@ -111,7 +95,7 @@ The partition pruning also supports dynamically pruning new created partitions d
 
 **1. Create a partitioned table:**
 ```sql title="Flink SQL"
-CREATE TABLE `testcatalog`.`testdb`.`log_partitioned_table` (
+CREATE TABLE `log_partitioned_table` (
     `c_custkey` INT NOT NULL,
     `c_name` STRING NOT NULL,
     `c_address` STRING NOT NULL,
@@ -126,7 +110,7 @@ CREATE TABLE `testcatalog`.`testdb`.`log_partitioned_table` (
 
 **2. Query with partition filter:**
 ```sql title="Flink SQL"
-SELECT * FROM `testcatalog`.`testdb`.`log_partitioned_table` WHERE `c_nationkey` = 'US';
+SELECT * FROM `log_partitioned_table` WHERE `c_nationkey` = 'US';
 ```
 
 Fluss source will scan only the partitions where `c_nationkey = 'US'`.
@@ -143,14 +127,14 @@ As new partitions like `US,2025-06-15`, `China,2025-06-15` are created, partitio
 **3. Verify with `EXPLAIN`:**
 
 ```sql title="Flink SQL"
-EXPLAIN SELECT * FROM `testcatalog`.`testdb`.`log_partitioned_table` WHERE `c_nationkey` = 'US';
+EXPLAIN SELECT * FROM `log_partitioned_table` WHERE `c_nationkey` = 'US';
 ```
 
 **Output:**
 
 ```text
 == Optimized Execution Plan ==
-TableSourceScan(table=[[testcatalog, testdb, log_partitioned_table, filter=[=(c_nationkey, _UTF-16LE'US':VARCHAR(2147483647) CHARACTER SET "UTF-16LE")]]], fields=[c_custkey, c_name, c_address, c_nationkey, c_phone, c_acctbal, c_mktsegment, c_comment, dt])
+TableSourceScan(table=[[fluss_catalog, fluss, log_partitioned_table, filter=[=(c_nationkey, _UTF-16LE'US':VARCHAR(2147483647) CHARACTER SET "UTF-16LE")]]], fields=[c_custkey, c_name, c_address, c_nationkey, c_phone, c_acctbal, c_mktsegment, c_comment, dt])
 ```
 
 This confirms that only partitions matching `c_nationkey = 'US'` will be scanned.
@@ -180,7 +164,6 @@ INSERT INTO log_table
 VALUES (1, 'Customer1', 'IVhzIApeRb ot,c,E', 15, '25-989-741-2988', 711.56, 'BUILDING', 'comment1'),
        (2, 'Customer2', 'XSTf4,NCwDVaWNe6tEgvwfmRchLXak', 13, '23-768-687-3665', 121.65, 'AUTOMOBILE', 'comment2'),
        (3, 'Customer3', 'MG9kdTD2WBHm', 1, '11-719-748-3364', 7498.12, 'AUTOMOBILE', 'comment3');
-;
 ```
 
 2. Query from table.

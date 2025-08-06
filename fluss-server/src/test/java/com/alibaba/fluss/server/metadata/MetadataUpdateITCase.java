@@ -1,11 +1,12 @@
 /*
- * Copyright (c) 2025 Alibaba Group Holding Ltd.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *    http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -89,7 +90,7 @@ class MetadataUpdateITCase {
     @Test
     void testMetadataUpdateForServerStartAndStop() throws Exception {
         // get metadata and check it
-        FLUSS_CLUSTER_EXTENSION.waitUtilAllGatewayHasSameMetadata();
+        FLUSS_CLUSTER_EXTENSION.waitUntilAllGatewayHasSameMetadata();
 
         Map<Long, TableContext> expectedTablePathById = new HashMap<>();
         // create non-partitioned table
@@ -170,7 +171,7 @@ class MetadataUpdateITCase {
 
     @Test
     void testMetadataUpdateForTableCreateAndDrop() throws Exception {
-        FLUSS_CLUSTER_EXTENSION.waitUtilAllGatewayHasSameMetadata();
+        FLUSS_CLUSTER_EXTENSION.waitUntilAllGatewayHasSameMetadata();
         Map<Long, TableContext> expectedTablePathById = new HashMap<>();
         assertUpdateMetadataEquals(
                 coordinatorServerNode, 3, expectedTablePathById, Collections.emptyMap());
@@ -251,7 +252,7 @@ class MetadataUpdateITCase {
 
     @Test
     void testMetadataUpdateForPartitionCreateAndDrop() throws Exception {
-        FLUSS_CLUSTER_EXTENSION.waitUtilAllGatewayHasSameMetadata();
+        FLUSS_CLUSTER_EXTENSION.waitUntilAllGatewayHasSameMetadata();
         Map<Long, TableContext> expectedTablePathById = new HashMap<>();
         Map<Long, TableContext> expectedPartitionNameById = new HashMap<>();
         assertUpdateMetadataEquals(

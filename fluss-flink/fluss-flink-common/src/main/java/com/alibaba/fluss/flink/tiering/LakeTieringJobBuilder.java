@@ -1,11 +1,12 @@
 /*
- * Copyright (c) 2025 Alibaba Group Holding Ltd.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *    http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,7 +17,6 @@
 
 package com.alibaba.fluss.flink.tiering;
 
-import com.alibaba.fluss.config.ConfigOptions;
 import com.alibaba.fluss.config.Configuration;
 import com.alibaba.fluss.flink.tiering.committer.CommittableMessageTypeInfo;
 import com.alibaba.fluss.flink.tiering.committer.TieringCommitOperatorFactory;
@@ -33,8 +33,6 @@ import org.apache.flink.core.execution.JobClient;
 import org.apache.flink.streaming.api.datastream.DataStreamSource;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.sink.v2.DiscardingSink;
-
-import java.util.Collections;
 
 import static com.alibaba.fluss.flink.tiering.source.TieringSource.TIERING_SOURCE_TRANSFORMATION_UID;
 import static com.alibaba.fluss.flink.tiering.source.TieringSourceOptions.POLL_TIERING_TABLE_INTERVAL;
@@ -73,11 +71,7 @@ public class LakeTieringJobBuilder {
     public JobClient build() throws Exception {
         // get the lake storage plugin
         LakeStoragePlugin lakeStoragePlugin =
-                LakeStoragePluginSetUp.fromConfiguration(
-                        Configuration.fromMap(
-                                Collections.singletonMap(
-                                        ConfigOptions.DATALAKE_FORMAT.key(), dataLakeFormat)),
-                        null);
+                LakeStoragePluginSetUp.fromDataLakeFormat(dataLakeFormat, null);
         // create lake storage from configurations
         LakeStorage lakeStorage = checkNotNull(lakeStoragePlugin).createLakeStorage(dataLakeConfig);
 
@@ -104,11 +98,13 @@ public class LakeTieringJobBuilder {
         source.transform(
                         "TieringCommitter",
                         CommittableMessageTypeInfo.of(
-                                () -> lakeTieringFactory.getCommitableSerializer()),
+                                () -> lakeTieringFactory.getCommittableSerializer()),
                         new TieringCommitOperatorFactory(flussConfig, lakeTieringFactory))
                 .setParallelism(1)
                 .setMaxParallelism(1)
-                .sinkTo(new DiscardingSink());
+                .sinkTo(new DiscardingSink())
+                .name("end")
+                .setParallelism(1);
         String jobName =
                 env.getConfiguration()
                         .getOptional(PipelineOptions.NAME)

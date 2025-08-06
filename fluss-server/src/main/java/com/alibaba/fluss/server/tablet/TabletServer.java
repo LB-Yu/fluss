@@ -1,11 +1,12 @@
 /*
- * Copyright (c) 2025 Alibaba Group Holding Ltd.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *    http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -47,6 +48,7 @@ import com.alibaba.fluss.server.zk.ZooKeeperUtils;
 import com.alibaba.fluss.server.zk.data.TabletServerRegistration;
 import com.alibaba.fluss.shaded.zookeeper3.org.apache.zookeeper.KeeperException;
 import com.alibaba.fluss.utils.ExceptionUtils;
+import com.alibaba.fluss.utils.clock.Clock;
 import com.alibaba.fluss.utils.clock.SystemClock;
 import com.alibaba.fluss.utils.concurrent.FlussScheduler;
 import com.alibaba.fluss.utils.concurrent.FutureUtils;
@@ -77,9 +79,6 @@ public class TabletServer extends ServerBase {
 
     private static final Logger LOG = LoggerFactory.getLogger(TabletServer.class);
 
-    private static final long ZOOKEEPER_REGISTER_TOTAL_WAIT_TIME_MS = 60 * 1000L;
-    private static final long ZOOKEEPER_REGISTER_RETRY_INTERVAL_MS = 3 * 1000L;
-
     private final int serverId;
 
     /**
@@ -100,6 +99,7 @@ public class TabletServer extends ServerBase {
 
     private final AtomicBoolean isShutDown = new AtomicBoolean(false);
     private final String interListenerName;
+    private final Clock clock;
 
     @GuardedBy("lock")
     private RpcServer rpcServer;
@@ -145,12 +145,17 @@ public class TabletServer extends ServerBase {
     private Authorizer authorizer;
 
     public TabletServer(Configuration conf) {
+        this(conf, SystemClock.getInstance());
+    }
+
+    public TabletServer(Configuration conf, Clock clock) {
         super(conf);
         validateConfigs(conf);
         this.terminationFuture = new CompletableFuture<>();
         this.serverId = conf.getInt(ConfigOptions.TABLET_SERVER_ID);
         this.rack = conf.getString(ConfigOptions.TABLET_SERVER_RACK);
         this.interListenerName = conf.getString(ConfigOptions.INTERNAL_LISTENER_NAME);
+        this.clock = clock;
     }
 
     public static void main(String[] args) {
@@ -183,8 +188,7 @@ public class TabletServer extends ServerBase {
             this.scheduler = new FlussScheduler(conf.get(BACKGROUND_THREADS));
             scheduler.startup();
 
-            SystemClock systemClock = SystemClock.getInstance();
-            this.logManager = LogManager.create(conf, zkClient, scheduler, systemClock);
+            this.logManager = LogManager.create(conf, zkClient, scheduler, clock);
             logManager.startup();
 
             this.kvManager = KvManager.create(conf, zkClient, logManager);
@@ -198,7 +202,7 @@ public class TabletServer extends ServerBase {
             // to fetch log.
             this.clientMetricGroup =
                     new ClientMetricGroup(metricRegistry, SERVER_NAME + "-" + serverId);
-            this.rpcClient = RpcClient.create(conf, clientMetricGroup);
+            this.rpcClient = RpcClient.create(conf, clientMetricGroup, true);
 
             CoordinatorGateway coordinatorGateway =
                     GatewayClientProxy.createGatewayProxy(
@@ -221,7 +225,7 @@ public class TabletServer extends ServerBase {
                                     rpcClient, metadataCache, interListenerName),
                             this,
                             tabletServerMetricGroup,
-                            systemClock);
+                            clock);
             replicaManager.startup();
 
             this.tabletService =
