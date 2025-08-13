@@ -645,6 +645,56 @@ class FlussTableITCase extends ClientToServerITCaseBase {
         verifyAppendOrPut(false, "ARROW", kvFormat);
     }
 
+    @Test
+    void test() throws Exception {
+        TableDescriptor DATA1_TABLE_DESCRIPTOR =
+                TableDescriptor.builder().schema(DATA1_SCHEMA).distributedBy(1).build();
+        createTable(DATA1_TABLE_PATH, DATA1_TABLE_DESCRIPTOR, false);
+
+        try (Table table = conn.getTable(DATA1_TABLE_PATH)) {
+            AppendWriter appendWriter = table.newAppend().createWriter();
+
+            for (int i = 0; i < 10; i++) {
+                appendWriter.append(row(i, "a")).get();
+            }
+
+            try (LogScanner logScanner = createLogScanner(table)) {
+                subscribeFromBeginning(logScanner, table);
+
+                ScanRecords scanRecords = logScanner.poll(Duration.ofSeconds(1));
+                for (ScanRecord record : scanRecords) {
+                    System.out.println(record);
+                }
+            }
+        }
+
+        System.out.println("==");
+
+        TableDescriptor DATA2_TABLE_DESCRIPTOR =
+                TableDescriptor.builder().schema(DATA1_SCHEMA).distributedBy(2).build();
+        admin.alterTable(DATA1_TABLE_PATH, DATA2_TABLE_DESCRIPTOR, false);
+
+        Thread.sleep(20_000);
+
+        conn = ConnectionFactory.createConnection(clientConf);
+        try (Table table = conn.getTable(DATA1_TABLE_PATH)) {
+            AppendWriter appendWriter = table.newAppend().createWriter();
+
+            for (int i = 0; i < 10; i++) {
+                appendWriter.append(row(i, "a")).get();
+            }
+
+            try (LogScanner logScanner = createLogScanner(table)) {
+                subscribeFromBeginning(logScanner, table);
+
+                ScanRecords scanRecords = logScanner.poll(Duration.ofSeconds(1));
+                for (ScanRecord record : scanRecords) {
+                    System.out.println(record);
+                }
+            }
+        }
+    }
+
     void verifyAppendOrPut(boolean append, String logFormat, @Nullable String kvFormat)
             throws Exception {
         Schema schema =

@@ -46,6 +46,25 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TableAssignmentUtilsTest {
 
     @Test
+    void test() {
+        TableAssignment tableAssignment =
+                generateAssignment(
+                        2,
+                        3,
+                        new TabletServerInfo[] {
+                            new TabletServerInfo(0, null),
+                            new TabletServerInfo(1, null),
+                            new TabletServerInfo(2, null),
+                            new TabletServerInfo(3, null),
+                            new TabletServerInfo(4, null)
+                        },
+                        0,
+                        3,
+                        9);
+        System.out.println(tableAssignment);
+    }
+
+    @Test
     void testTableAssignmentWithRackUnAware() {
         // should throw exception since servers is empty
         assertThatThrownBy(
@@ -94,6 +113,7 @@ class TableAssignmentUtilsTest {
                         1,
                         toTabletServerInfo(Collections.emptyMap(), Arrays.asList(0, 1, 2, 3)),
                         0,
+                        0,
                         0);
         TableAssignment expectedAssignment =
                 TableAssignment.builder()
@@ -110,6 +130,7 @@ class TableAssignmentUtilsTest {
                         3,
                         toTabletServerInfo(Collections.emptyMap(), Arrays.asList(0, 1, 2, 3)),
                         1,
+                        0,
                         0);
         expectedAssignment =
                 TableAssignment.builder()
@@ -125,6 +146,7 @@ class TableAssignmentUtilsTest {
                         10,
                         3,
                         toTabletServerInfo(Collections.emptyMap(), Arrays.asList(0, 1, 2, 3, 4)),
+                        0,
                         0,
                         0);
         expectedAssignment =
@@ -164,7 +186,7 @@ class TableAssignmentUtilsTest {
 
         TableAssignment tableAssignment =
                 generateAssignment(
-                        7, 3, toTabletServerInfo(rackMap, Collections.emptyList()), 0, 0);
+                        7, 3, toTabletServerInfo(rackMap, Collections.emptyList()), 0, 0, 0);
         TableAssignment expectedAssignment =
                 TableAssignment.builder()
                         .add(0, BucketAssignment.of(0, 3, 1))
@@ -196,6 +218,7 @@ class TableAssignmentUtilsTest {
                         replicationFactor,
                         toTabletServerInfo(rackMap, Collections.emptyList()),
                         2,
+                        0,
                         0);
         checkTableAssignment(tableAssignment, rackMap, 6, nBuckets, replicationFactor);
     }
@@ -237,6 +260,7 @@ class TableAssignmentUtilsTest {
                         nBuckets,
                         replicationFactor,
                         toTabletServerInfo(rackMap, Collections.emptyList()),
+                        0,
                         0,
                         0);
         checkTableAssignment(
@@ -302,7 +326,8 @@ class TableAssignmentUtilsTest {
                         replicationFactor,
                         toTabletServerInfo(rackMap, Collections.emptyList()),
                         0,
-                        12);
+                        12,
+                        0);
         checkTableAssignment(tableAssignment, rackMap, 6, nBuckets, replicationFactor);
     }
 
@@ -462,6 +487,7 @@ class TableAssignmentUtilsTest {
                         replicationFactor,
                         toTabletServerInfo(rackMap, Collections.emptyList()),
                         2,
+                        0,
                         0);
         checkTableAssignment(
                 tableAssignment, rackMap, 12, nBuckets, replicationFactor, false, false, false);
