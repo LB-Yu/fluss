@@ -320,9 +320,10 @@ public class MetadataManager {
             }
         }
 
+        TableRegistration existTableReg = getTableRegistration(tablePath);
         try {
             TableRegistration updatedTableRegistration =
-                    getUpdatedTableRegistration(tablePath, tableDescriptor);
+                    getUpdatedTableRegistration(existTableReg, tableDescriptor);
             zookeeperClient.updateTable(tablePath, updatedTableRegistration);
         } catch (Exception e) {
             if (e instanceof KeeperException.NoNodeException) {
@@ -336,12 +337,20 @@ public class MetadataManager {
         }
     }
 
+    public void alterTableBucket(
+            long tableId, TableAssignment existingAssignment, TableAssignment newAssignment) {
+        try {
+            existingAssignment.getBucketAssignments().putAll(newAssignment.getBucketAssignments());
+            zookeeperClient.updateTableAssignment(tableId, existingAssignment);
+        } catch (Exception e) {
+            throw new FlussRuntimeException("Failed to update table assignment: " + tableId, e);
+        }
+    }
+
     private TableRegistration getUpdatedTableRegistration(
-            TablePath tablePath, TableDescriptor updateTableDescriptor) {
-        TableRegistration existTableReg = getTableRegistration(tablePath);
+            TableRegistration existTableReg, TableDescriptor updateTableDescriptor) {
         Map<String, String> updateProperties = updateTableDescriptor.getProperties();
         Map<String, String> updateCustomProperties = updateTableDescriptor.getCustomProperties();
-        validateAlterTableProperties(updateTableDescriptor);
 
         Map<String, String> newProperties = new HashMap<>(existTableReg.properties);
         for (Map.Entry<String, String> updateProperty : updateProperties.entrySet()) {
@@ -359,7 +368,15 @@ public class MetadataManager {
             }
         }
 
-        return existTableReg.newProperties(newProperties, newCustomProperties);
+        return new TableRegistration(
+                existTableReg.tableId,
+                existTableReg.comment,
+                existTableReg.partitionKeys,
+                updateTableDescriptor.getTableDistribution().get(),
+                newProperties,
+                newCustomProperties,
+                existTableReg.createdTime,
+                System.currentTimeMillis());
     }
 
     public TableInfo getTable(TablePath tablePath) throws TableNotExistException {
@@ -389,6 +406,19 @@ public class MetadataManager {
             throw new TableNotExistException("Table '" + tablePath + "' does not exist.");
         }
         return optionalTable.get();
+    }
+
+    public TableAssignment getTableAssignment(long tableId) {
+        Optional<TableAssignment> optionalTableAssignment;
+        try {
+            optionalTableAssignment = zookeeperClient.getTableAssignment(tableId);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        if (!optionalTableAssignment.isPresent()) {
+            throw new TableNotExistException("Table '" + tableId + "' does not exist.");
+        }
+        return optionalTableAssignment.get();
     }
 
     public SchemaInfo getLatestSchema(TablePath tablePath) throws SchemaNotExistException {

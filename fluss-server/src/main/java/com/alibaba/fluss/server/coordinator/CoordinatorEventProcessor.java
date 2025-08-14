@@ -42,6 +42,7 @@ import com.alibaba.fluss.rpc.messages.PbCommitLakeTableSnapshotRespForTable;
 import com.alibaba.fluss.rpc.protocol.ApiError;
 import com.alibaba.fluss.server.coordinator.event.AccessContextEvent;
 import com.alibaba.fluss.server.coordinator.event.AdjustIsrReceivedEvent;
+import com.alibaba.fluss.server.coordinator.event.AlterTableBucketEvent;
 import com.alibaba.fluss.server.coordinator.event.CommitKvSnapshotEvent;
 import com.alibaba.fluss.server.coordinator.event.CommitLakeTableSnapshotEvent;
 import com.alibaba.fluss.server.coordinator.event.CommitRemoteLogManifestEvent;
@@ -57,6 +58,7 @@ import com.alibaba.fluss.server.coordinator.event.EventProcessor;
 import com.alibaba.fluss.server.coordinator.event.FencedCoordinatorEvent;
 import com.alibaba.fluss.server.coordinator.event.NewTabletServerEvent;
 import com.alibaba.fluss.server.coordinator.event.NotifyLeaderAndIsrResponseReceivedEvent;
+import com.alibaba.fluss.server.coordinator.event.watcher.TableBucketChangeWatcher;
 import com.alibaba.fluss.server.coordinator.event.watcher.TableChangeWatcher;
 import com.alibaba.fluss.server.coordinator.event.watcher.TabletServerChangeWatcher;
 import com.alibaba.fluss.server.coordinator.statemachine.ReplicaStateMachine;
@@ -128,6 +130,7 @@ public class CoordinatorEventProcessor implements EventProcessor {
     private final TableChangeWatcher tableChangeWatcher;
     private final CoordinatorChannelManager coordinatorChannelManager;
     private final TabletServerChangeWatcher tabletServerChangeWatcher;
+    private final TableBucketChangeWatcher tableBucketChangeWatcher;
     private final CoordinatorMetadataCache serverMetadataCache;
     private final CoordinatorRequestBatch coordinatorRequestBatch;
     private final CoordinatorMetricGroup coordinatorMetricGroup;
@@ -178,6 +181,8 @@ public class CoordinatorEventProcessor implements EventProcessor {
         this.tableChangeWatcher = new TableChangeWatcher(zooKeeperClient, coordinatorEventManager);
         this.tabletServerChangeWatcher =
                 new TabletServerChangeWatcher(zooKeeperClient, coordinatorEventManager);
+        this.tableBucketChangeWatcher =
+                new TableBucketChangeWatcher(zooKeeperClient, coordinatorEventManager);
         this.coordinatorRequestBatch =
                 new CoordinatorRequestBatch(
                         coordinatorChannelManager, coordinatorEventManager, coordinatorContext);
@@ -201,6 +206,7 @@ public class CoordinatorEventProcessor implements EventProcessor {
         // start watchers first so that we won't miss node in zk;
         tabletServerChangeWatcher.start();
         tableChangeWatcher.start();
+        tableBucketChangeWatcher.start();
         LOG.info("Initializing coordinator context.");
         try {
             initCoordinatorContext();
@@ -422,6 +428,7 @@ public class CoordinatorEventProcessor implements EventProcessor {
         // then stop watchers
         tableChangeWatcher.stop();
         tabletServerChangeWatcher.stop();
+        tableBucketChangeWatcher.stop();
     }
 
     @Override
@@ -470,11 +477,66 @@ public class CoordinatorEventProcessor implements EventProcessor {
             completeFromCallable(
                     commitLakeTableSnapshotEvent.getRespCallback(),
                     () -> tryProcessCommitLakeTableSnapshot(commitLakeTableSnapshotEvent));
+        } else if (event instanceof AlterTableBucketEvent) {
+            processAlterTableBucket((AlterTableBucketEvent) event);
         } else if (event instanceof AccessContextEvent) {
             AccessContextEvent<?> accessContextEvent = (AccessContextEvent<?>) event;
             processAccessContext(accessContextEvent);
         } else {
             LOG.warn("Unknown event type: {}", event.getClass().getName());
+        }
+    }
+
+    private void processAlterTableBucket(AlterTableBucketEvent alterTableBucketEvent) {
+        Map<TableBucket, BucketAssignment> bucketsToBeAdded =
+                alterTableBucketEvent.getTableAssignment().getBucketAssignments().entrySet()
+                        .stream()
+                        .filter(
+                                entry ->
+                                        !coordinatorContext
+                                                .getTableAssignment(
+                                                        alterTableBucketEvent.getTableId())
+                                                .containsKey(entry.getKey()))
+                        .collect(
+                                Collectors.toMap(
+                                        entry ->
+                                                new TableBucket(
+                                                        alterTableBucketEvent.getTableId(),
+                                                        entry.getKey()),
+                                        Map.Entry::getValue));
+
+        if (coordinatorContext.isTableQueuedForDeletion(alterTableBucketEvent.getTableId())) {
+            if (!bucketsToBeAdded.isEmpty()) {
+
+            } else {
+                LOG.info(
+                        "Ignoring bucket change during table deletion as no new buckets are added");
+            }
+        } else if (!bucketsToBeAdded.isEmpty()) {
+            LOG.info("New buckets to be added {}", bucketsToBeAdded);
+            bucketsToBeAdded.forEach(
+                    (tableBucket, bucketAssignment) -> {
+                        coordinatorContext.updateBucketReplicaAssignment(
+                                tableBucket, bucketAssignment.getReplicas());
+                    });
+            tableManager.onCreateNewTableBucket(
+                    alterTableBucketEvent.getTableId(), bucketsToBeAdded.keySet());
+
+            Set<TableBucket> tableBuckets = new HashSet<>();
+            alterTableBucketEvent
+                    .getTableAssignment()
+                    .getBucketAssignments()
+                    .keySet()
+                    .forEach(
+                            bucketId ->
+                                    tableBuckets.add(
+                                            new TableBucket(
+                                                    alterTableBucketEvent.getTableId(), bucketId)));
+            updateTabletServerMetadataCache(
+                    new HashSet<>(coordinatorContext.getLiveTabletServers().values()),
+                    null,
+                    null,
+                    tableBuckets);
         }
     }
 

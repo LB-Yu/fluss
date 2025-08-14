@@ -83,6 +83,9 @@ public abstract class ClientToServerITCaseBase {
     @BeforeEach
     protected void setup() throws Exception {
         clientConf = FLUSS_CLUSTER_EXTENSION.getClientConfig();
+        clientConf.set(
+                ConfigOptions.CLIENT_WRITER_BUCKET_NO_KEY_ASSIGNER,
+                ConfigOptions.NoKeyAssigner.ROUND_ROBIN);
         conn = ConnectionFactory.createConnection(clientConf);
         admin = conn.getAdmin();
     }

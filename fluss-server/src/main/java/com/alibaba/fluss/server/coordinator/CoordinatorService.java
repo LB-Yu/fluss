@@ -296,7 +296,6 @@ public final class CoordinatorService extends RpcServiceBase implements Coordina
         AlterTableResponse alterTableResponse = new AlterTableResponse();
 
         TableDescriptor tableDescriptor;
-
         try {
             tableDescriptor = TableDescriptor.fromJsonBytes(request.getTableJson());
         } catch (Exception e) {
@@ -308,7 +307,37 @@ public final class CoordinatorService extends RpcServiceBase implements Coordina
                 throw new InvalidTableException(e.getMessage());
             }
         }
+
+        TableRegistration table = metadataManager.getTableRegistration(tablePath);
+        // TODO: Alter bucket of partitioned table
+        if (!table.isPartitioned()) {
+            // Alter table bucket
+            TableAssignment existingAssignment = metadataManager.getTableAssignment(table.tableId);
+            int oldNumBuckets = table.bucketCount;
+            int newNumBuckets = tableDescriptor.getTableDistribution().get().getBucketCount().get();
+            int numBucketsIncrement = newNumBuckets - oldNumBuckets;
+
+            if (numBucketsIncrement > 0) {
+                int replicaFactor = table.getTableConfig().getReplicationFactor();
+                TabletServerInfo[] servers = metadataCache.getLiveServers();
+                BucketAssignment existingAssignmentBucket0 =
+                        existingAssignment.getBucketAssignment(0);
+                int startIndex = Math.max(0, existingAssignmentBucket0.getReplicas().get(0));
+                // TODO: We should prevent adding buckets while table reassignment is in progress.
+                Map<Integer, BucketAssignment> newBucketsAssignment =
+                        generateAssignment(
+                                        numBucketsIncrement, replicaFactor, servers, oldNumBuckets)
+                                .getBucketAssignments();
+                metadataManager.alterTableBucket(
+                        table.tableId,
+                        existingAssignment,
+                        new TableAssignment(newBucketsAssignment));
+            }
+        }
+
+        // Alter table registration
         metadataManager.alterTable(tablePath, tableDescriptor, request.isIgnoreIfNotExists());
+
         return CompletableFuture.completedFuture(alterTableResponse);
     }
 
