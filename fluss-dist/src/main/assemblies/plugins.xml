@@ -30,6 +30,15 @@
     <dependencySets>
         <dependencySet>
             <outputDirectory>plugins/paimon</outputDirectory>
+            <includes>
+                <include>com.alibaba.fluss:fluss-lake-paimon</include>
+                <include>com.aliyun.datalake:dlf-sdk</include>
+                <include>com.alibaba.alake:ali-dlf-sdk-assembly</include>
+                <include>org.apache.paimon:paimon-bundle</include>
+            </includes>
+        </dependencySet>
+        <dependencySet>
+            <outputDirectory>plugins/paimon</outputDirectory>
             <unpack>false</unpack>
             <useProjectArtifact>false</useProjectArtifact>
             <useProjectAttachments>false</useProjectAttachments>
@@ -93,6 +102,14 @@
             <fileMode>0644</fileMode>
         </file>
 
+        <!-- 弹内的paimon plugin实现-->
+        <file>
+            <source>../docker-inner/fluss-ali-lake-paimon-${project.version}.jar</source>
+            <outputDirectory>plugins/paimon/</outputDirectory>
+            <destName>fluss-ali-lake-paimon-${project.version}.jar</destName>
+            <fileMode>0644</fileMode>
+        </file>
+
         <!-- metrics -->
         <file>
             <source>../fluss-metrics/fluss-metrics-prometheus/target/fluss-metrics-prometheus-${project.version}.jar</source>
@@ -109,10 +126,16 @@
         </file>
 
         <!-- lake formats -->
+<!--        <file>-->
+<!--            <source>../fluss-lake/fluss-lake-paimon/target/fluss-lake-paimon-${project.version}.jar</source>-->
+<!--            <outputDirectory>plugins/paimon/</outputDirectory>-->
+<!--            <destName>fluss-lake-paimon-${project.version}.jar</destName>-->
+<!--            <fileMode>0644</fileMode>-->
+<!--        </file>-->
         <file>
-            <source>../fluss-lake/fluss-lake-paimon/target/fluss-lake-paimon-${project.version}.jar</source>
+            <source>../docker-inner/fluss-ali-lake-paimon-${project.version}.jar</source>
             <outputDirectory>plugins/paimon/</outputDirectory>
-            <destName>fluss-lake-paimon-${project.version}.jar</destName>
+            <destName>fluss-ali-lake-paimon-${project.version}.jar</destName>
             <fileMode>0644</fileMode>
         </file>
         <file>
