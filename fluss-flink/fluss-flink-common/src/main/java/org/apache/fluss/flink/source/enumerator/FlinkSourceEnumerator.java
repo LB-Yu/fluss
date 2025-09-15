@@ -114,6 +114,7 @@ public class FlinkSourceEnumerator
     @Nullable private List<SourceSplitBase> pendingHybridLakeFlussSplits;
 
     private final long scanPartitionDiscoveryIntervalMs;
+    private final long scanBucketDiscoveryIntervalMs;
 
     private final boolean streaming;
     private final OffsetsInitializer startingOffsetsInitializer;
@@ -145,6 +146,7 @@ public class FlinkSourceEnumerator
             SplitEnumeratorContext<SourceSplitBase> context,
             OffsetsInitializer startingOffsetsInitializer,
             long scanPartitionDiscoveryIntervalMs,
+            long scanBucketDiscoveryIntervalMs,
             boolean streaming,
             List<FieldEqual> partitionFilters) {
         this(
@@ -155,6 +157,7 @@ public class FlinkSourceEnumerator
                 context,
                 startingOffsetsInitializer,
                 scanPartitionDiscoveryIntervalMs,
+                scanBucketDiscoveryIntervalMs,
                 streaming,
                 partitionFilters,
                 null);
@@ -168,6 +171,7 @@ public class FlinkSourceEnumerator
             SplitEnumeratorContext<SourceSplitBase> context,
             OffsetsInitializer startingOffsetsInitializer,
             long scanPartitionDiscoveryIntervalMs,
+            long scanBucketDiscoveryIntervalMs,
             boolean streaming,
             List<FieldEqual> partitionFilters,
             @Nullable LakeSource<LakeSplit> lakeSource) {
@@ -182,6 +186,7 @@ public class FlinkSourceEnumerator
                 null,
                 startingOffsetsInitializer,
                 scanPartitionDiscoveryIntervalMs,
+                scanBucketDiscoveryIntervalMs,
                 streaming,
                 partitionFilters,
                 lakeSource);
@@ -198,6 +203,7 @@ public class FlinkSourceEnumerator
             List<SourceSplitBase> pendingHybridLakeFlussSplits,
             OffsetsInitializer startingOffsetsInitializer,
             long scanPartitionDiscoveryIntervalMs,
+            long scanBucketDiscoveryIntervalMs,
             boolean streaming,
             List<FieldEqual> partitionFilters,
             @Nullable LakeSource<LakeSplit> lakeSource) {
@@ -215,6 +221,7 @@ public class FlinkSourceEnumerator
                         ? null
                         : new LinkedList<>(pendingHybridLakeFlussSplits);
         this.scanPartitionDiscoveryIntervalMs = scanPartitionDiscoveryIntervalMs;
+        this.scanBucketDiscoveryIntervalMs = scanBucketDiscoveryIntervalMs;
         this.streaming = streaming;
         this.partitionFilters = checkNotNull(partitionFilters);
         this.stoppingOffsetsInitializer =
@@ -248,23 +255,26 @@ public class FlinkSourceEnumerator
                     }
                 }
 
-                if (scanPartitionDiscoveryIntervalMs > 0) {
-                    // should do partition discovery
+                if (scanPartitionDiscoveryIntervalMs > 0 || scanBucketDiscoveryIntervalMs > 0) {
+                    // should do partition/bucket discovery
                     LOG.info(
                             "Starting the FlussSourceEnumerator for table {} "
-                                    + "with new partition discovery interval of {} ms.",
+                                    + "with new partition discovery interval of {} ms "
+                                    + "and new bucket discovery interval of {} ms.",
                             tablePath,
-                            scanPartitionDiscoveryIntervalMs);
-                    // discover new partitions and handle new partitions
+                            scanPartitionDiscoveryIntervalMs,
+                            scanBucketDiscoveryIntervalMs);
+                    long scanDiscoveryIntervalMs = getScanDiscoveryIntervalMs();
+                    // discover new partitions/buckets and handle them
                     context.callAsync(
                             this::listPartitions,
                             this::checkPartitionChanges,
                             0,
-                            scanPartitionDiscoveryIntervalMs);
+                            scanDiscoveryIntervalMs);
                 } else {
                     // just call once
                     LOG.info(
-                            "Starting the FlussSourceEnumerator for table {} without partition discovery.",
+                            "Starting the FlussSourceEnumerator for table {} without partition and bucket discovery.",
                             tablePath);
                     context.callAsync(this::listPartitions, this::checkPartitionChanges);
                 }
@@ -277,6 +287,14 @@ public class FlinkSourceEnumerator
             } else {
                 startInBatchMode();
             }
+        }
+    }
+
+    private long getScanDiscoveryIntervalMs() {
+        if (scanPartitionDiscoveryIntervalMs > 0 && scanBucketDiscoveryIntervalMs > 0) {
+            return Math.min(scanPartitionDiscoveryIntervalMs, scanBucketDiscoveryIntervalMs);
+        } else {
+            return Math.max(scanPartitionDiscoveryIntervalMs, scanBucketDiscoveryIntervalMs);
         }
     }
 
@@ -302,21 +320,55 @@ public class FlinkSourceEnumerator
 
     private void startInStreamModeForNonPartitionedTable() {
         if (lakeSource != null) {
-            context.callAsync(
-                    () -> {
-                        // firstly, try to generate hybrid lake splits,
-                        List<SourceSplitBase> splits = generateHybridLakeFlussSplits();
-                        // splits is null,
-                        // we'll fall back to normal fluss splits generation logic
-                        if (splits == null) {
-                            splits = this.initNonPartitionedSplits();
-                        }
-                        return splits;
-                    },
-                    this::handleSplitsAdd);
+            // Currently, only log table support alter bucket number.
+            // So we only enable bucket discovery for log table.
+            if (scanBucketDiscoveryIntervalMs > 0 && !hasPrimaryKey) {
+                List<SourceSplitBase> splits = generateHybridLakeFlussSplits();
+                if (splits != null) {
+                    // handle hybrid lake fluss splits firstly
+                    handleSplitsAdd(splits, null);
+                }
+
+                context.callAsync(
+                        () -> listBuckets(null),
+                        this::checkBucketChanges,
+                        0,
+                        scanBucketDiscoveryIntervalMs);
+            } else {
+                context.callAsync(
+                        () -> {
+                            // firstly, try to generate hybrid lake splits,
+                            List<SourceSplitBase> splits = generateHybridLakeFlussSplits();
+                            // splits is null,
+                            // we'll fall back to normal fluss splits generation logic
+                            if (splits == null) {
+                                splits = this.initNonPartitionedSplits();
+                            }
+                            return splits;
+                        },
+                        this::handleSplitsAdd);
+            }
         } else {
-            // init bucket splits and assign
-            context.callAsync(this::initNonPartitionedSplits, this::handleSplitsAdd);
+            // Currently, only log table support alter bucket number.
+            // So we only enable bucket discovery for log table.
+            if (scanBucketDiscoveryIntervalMs > 0 && !hasPrimaryKey) {
+                LOG.info(
+                        "Starting the FlussSourceEnumerator for table {} "
+                                + "with new bucket discovery interval of {} ms.",
+                        tablePath,
+                        scanBucketDiscoveryIntervalMs);
+                context.callAsync(
+                        () -> listBuckets(null),
+                        this::checkBucketChanges,
+                        0,
+                        scanBucketDiscoveryIntervalMs);
+            } else {
+                LOG.info(
+                        "Starting the FlussSourceEnumerator for table {} without bucket discovery.",
+                        tablePath);
+                // init bucket splits and assign
+                context.callAsync(this::initNonPartitionedSplits, this::handleSplitsAdd);
+            }
         }
     }
 
@@ -335,6 +387,98 @@ public class FlinkSourceEnumerator
         } else {
             return getLogSplit(null, null);
         }
+    }
+
+    private Set<TableBucket> listBuckets(@Nullable Long partitionId) {
+        try {
+            // Always refresh tableInfo to discovery bucket num change
+            tableInfo = flussAdmin.getTableInfo(tablePath).get();
+            int bucketNum = tableInfo.getNumBuckets();
+            Set<TableBucket> tableBuckets = new HashSet<>(bucketNum);
+            for (int bucketId = 0; bucketId < bucketNum; bucketId++) {
+                TableBucket tableBucket =
+                        new TableBucket(tableInfo.getTableId(), partitionId, bucketId);
+                tableBuckets.add(tableBucket);
+            }
+            return tableBuckets;
+        } catch (Exception e) {
+            throw new FlinkRuntimeException(
+                    String.format("Failed to list buckets for %s", tablePath),
+                    ExceptionUtils.stripCompletionException(e));
+        }
+    }
+
+    private void checkBucketChanges(Set<TableBucket> tableBuckets, Throwable t) {
+        if (closed) {
+            // skip if the enumerator is closed to avoid unnecessary error logs
+            return;
+        }
+        if (t != null) {
+            LOG.error("Failed to list buckets for {}", tablePath, t);
+            return;
+        }
+        final BucketChange bucketChange = getBucketChange(tableBuckets);
+        if (bucketChange.isEmpty()) {
+            return;
+        }
+
+        // handle new buckets
+        context.callAsync(
+                () -> initBucketSplits(bucketChange.newBuckets, null, null), this::handleSplitsAdd);
+    }
+
+    private BucketChange getBucketChange(Set<TableBucket> fetchedTableBuckets) {
+        final Set<TableBucket> newTableBuckets = new HashSet<>(fetchedTableBuckets);
+        final Set<TableBucket> removedTableBuckets = new HashSet<>();
+
+        Set<TableBucket> assignedOrPendingTableBuckets = new HashSet<>(assignedTableBuckets);
+        pendingSplitAssignment.values().stream()
+                .flatMap(Collection::stream)
+                .forEach(
+                        split -> {
+                            TableBucket tableBucket = split.getTableBucket();
+                            assignedOrPendingTableBuckets.add(tableBucket);
+                        });
+
+        assignedOrPendingTableBuckets.forEach(
+                p -> {
+                    if (!newTableBuckets.remove(p)) {
+                        removedTableBuckets.add(p);
+                    }
+                });
+
+        if (!removedTableBuckets.isEmpty()) {
+            LOG.info("Discovered removed tableBuckets: {}", removedTableBuckets);
+        }
+        if (!newTableBuckets.isEmpty()) {
+            LOG.info("Discovered new tableBuckets: {}", newTableBuckets);
+        }
+        return new BucketChange(newTableBuckets, removedTableBuckets);
+    }
+
+    private List<SourceSplitBase> initBucketSplits(
+            Collection<TableBucket> newBuckets,
+            @Nullable String partitionName,
+            @Nullable Long partitionId) {
+        List<Integer> bucketsNeedInitOffset =
+                newBuckets.stream().map(TableBucket::getBucket).collect(Collectors.toList());
+
+        List<SourceSplitBase> splits = new ArrayList<>(bucketsNeedInitOffset.size());
+        if (!bucketsNeedInitOffset.isEmpty()) {
+            startingOffsetsInitializer
+                    .getBucketOffsets(partitionName, bucketsNeedInitOffset, bucketOffsetsRetriever)
+                    .forEach(
+                            (bucketId, startingOffset) ->
+                                    splits.add(
+                                            new LogSplit(
+                                                    new TableBucket(
+                                                            tableInfo.getTableId(),
+                                                            partitionId,
+                                                            bucketId),
+                                                    partitionName,
+                                                    startingOffset)));
+        }
+        return splits;
     }
 
     private Set<PartitionInfo> listPartitions() {
@@ -398,9 +542,19 @@ public class FlinkSourceEnumerator
         // handle removed partitions
         handlePartitionsRemoved(partitionChange.removedPartitions);
 
-        // handle new partitions
-        context.callAsync(
-                () -> initPartitionedSplits(partitionChange.newPartitions), this::handleSplitsAdd);
+        if (scanBucketDiscoveryIntervalMs > 0 && !hasPrimaryKey) {
+            context.callAsync(
+                    () ->
+                            listLogTablePartitionSplits(
+                                    partitionChange.newPartitions,
+                                    partitionChange.nonChangedPartitions),
+                    this::handleSplitsAdd);
+        } else {
+            // handle new partitions
+            context.callAsync(
+                    () -> initPartitionedSplits(partitionChange.newPartitions),
+                    this::handleSplitsAdd);
+        }
     }
 
     private PartitionChange getPartitionChange(Set<PartitionInfo> fetchedPartitionInfos) {
@@ -409,6 +563,7 @@ public class FlinkSourceEnumerator
                         .map(p -> new Partition(p.getPartitionId(), p.getPartitionName()))
                         .collect(Collectors.toSet());
         final Set<Partition> removedPartitions = new HashSet<>();
+        final Set<Partition> nonChangedPartitions = new HashSet<>();
 
         Set<Partition> assignedOrPendingPartitions = new HashSet<>();
         assignedPartitions.forEach(
@@ -435,6 +590,8 @@ public class FlinkSourceEnumerator
                 p -> {
                     if (!newPartitions.remove(p)) {
                         removedPartitions.add(p);
+                    } else {
+                        nonChangedPartitions.add(p);
                     }
                 });
 
@@ -445,7 +602,7 @@ public class FlinkSourceEnumerator
             LOG.info("Discovered new partitions: {}", newPartitions);
         }
 
-        return new PartitionChange(newPartitions, removedPartitions);
+        return new PartitionChange(newPartitions, removedPartitions, nonChangedPartitions);
     }
 
     private List<SourceSplitBase> initPartitionedSplits(Collection<Partition> newPartitions) {
@@ -482,6 +639,31 @@ public class FlinkSourceEnumerator
             }
             splits.addAll(getSnapshotAndLogSplits(kvSnapshots, partitionName));
         }
+        return splits;
+    }
+
+    private List<SourceSplitBase> listLogTablePartitionSplits(
+            Collection<Partition> newPartitions, Collection<Partition> nonChangedPartitions) {
+        List<SourceSplitBase> splits = new ArrayList<>();
+
+        for (Partition partition : newPartitions) {
+            splits.addAll(getLogSplit(partition.getPartitionId(), partition.getPartitionName()));
+        }
+
+        for (Partition partition : nonChangedPartitions) {
+            Set<TableBucket> tableBuckets = listBuckets(partition.getPartitionId());
+            final BucketChange bucketChange = getBucketChange(tableBuckets);
+            if (bucketChange.isEmpty()) {
+                continue;
+            }
+            List<SourceSplitBase> sourceSplitBases =
+                    initBucketSplits(
+                            bucketChange.newBuckets,
+                            partition.getPartitionName(),
+                            partition.getPartitionId());
+            splits.addAll(sourceSplitBases);
+        }
+
         return splits;
     }
 
@@ -619,7 +801,10 @@ public class FlinkSourceEnumerator
 
     private void handleSplitsAdd(List<SourceSplitBase> splits, Throwable t) {
         if (t != null) {
-            if (isPartitioned && streaming && scanPartitionDiscoveryIntervalMs > 0) {
+            if (isPartitioned
+                    && streaming
+                    && (scanPartitionDiscoveryIntervalMs > 0
+                            || scanBucketDiscoveryIntervalMs > 0)) {
                 // it means continuously read new partition splits, not throw exception, temporally
                 // warn it to avoid job fail. TODO: fix me in #288
                 LOG.warn("Failed to list splits for {}.", tablePath, t);
@@ -631,15 +816,20 @@ public class FlinkSourceEnumerator
             }
         }
         if (isPartitioned) {
-            if (!streaming || scanPartitionDiscoveryIntervalMs <= 0) {
-                // if not streaming or partition discovery is disabled
+            if (!streaming
+                    || (scanPartitionDiscoveryIntervalMs <= 0
+                            && scanBucketDiscoveryIntervalMs <= 0)) {
+                // if not streaming or partition and bucket discovery are disabled
                 // should only add splits only once, no more new splits
                 noMoreNewSplits = true;
             }
         } else {
-            // if not partitioned, only will add splits only once,
+            // if not partitioned and not bucket discovery is disabled, only will add splits only
+            // once,
             // so, noMoreNewPartitionSplits should be set to true
-            noMoreNewSplits = true;
+            if (scanBucketDiscoveryIntervalMs <= 0) {
+                noMoreNewSplits = true;
+            }
         }
         doHandleSplitsAdd(splits);
     }
@@ -847,19 +1037,41 @@ public class FlinkSourceEnumerator
     }
 
     // --------------- private class ---------------
+
+    /** A container class to hold the newly added buckets and removed buckets. */
+    private static class BucketChange {
+        private final Collection<TableBucket> newBuckets;
+        private final Collection<TableBucket> removedBuckets;
+
+        BucketChange(Collection<TableBucket> newBuckets, Collection<TableBucket> removedBuckets) {
+            this.newBuckets = newBuckets;
+            this.removedBuckets = removedBuckets;
+        }
+
+        public boolean isEmpty() {
+            return newBuckets.isEmpty() && removedBuckets.isEmpty();
+        }
+    }
+
     /** A container class to hold the newly added partitions and removed partitions. */
     private static class PartitionChange {
         private final Collection<Partition> newPartitions;
         private final Collection<Partition> removedPartitions;
+        private final Collection<Partition> nonChangedPartitions;
 
         PartitionChange(
-                Collection<Partition> newPartitions, Collection<Partition> removedPartitions) {
+                Collection<Partition> newPartitions,
+                Collection<Partition> removedPartitions,
+                Collection<Partition> nonChangedPartitions) {
             this.newPartitions = newPartitions;
             this.removedPartitions = removedPartitions;
+            this.nonChangedPartitions = nonChangedPartitions;
         }
 
         public boolean isEmpty() {
-            return newPartitions.isEmpty() && removedPartitions.isEmpty();
+            return newPartitions.isEmpty()
+                    && removedPartitions.isEmpty()
+                    && nonChangedPartitions.isEmpty();
         }
     }
 

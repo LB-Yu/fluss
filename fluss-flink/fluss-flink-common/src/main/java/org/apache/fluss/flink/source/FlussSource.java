@@ -44,6 +44,7 @@ import java.util.Collections;
  *     .setProjectedFields("orderId", "amount")
  *     .setStartingOffsets(OffsetsInitializer.earliest())
  *     .setScanPartitionDiscoveryIntervalMs(1000L)
+ *     .setScanBucketDiscoveryIntervalMs(1000L)
  *     .setDeserializationSchema(new OrderDeserializationSchema())
  *     .build();
  *
@@ -68,6 +69,7 @@ public class FlussSource<OUT> extends FlinkSource<OUT> {
             @Nullable int[] projectedFields,
             OffsetsInitializer offsetsInitializer,
             long scanPartitionDiscoveryIntervalMs,
+            long scanBucketDiscoveryIntervalMs,
             FlussDeserializationSchema<OUT> deserializationSchema,
             boolean streaming) {
         // TODO: Support partition pushDown in datastream
@@ -80,6 +82,7 @@ public class FlussSource<OUT> extends FlinkSource<OUT> {
                 projectedFields,
                 offsetsInitializer,
                 scanPartitionDiscoveryIntervalMs,
+                scanBucketDiscoveryIntervalMs,
                 deserializationSchema,
                 streaming,
                 Collections.emptyList());

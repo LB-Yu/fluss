@@ -256,6 +256,14 @@ public class FlinkTestBase extends AbstractTestBase {
         }
     }
 
+    public static void alterTableBucket(
+            ZooKeeperClient zkClient, TablePath tablePath, int bucketNum) throws Exception {
+        MetadataManager metadataManager = new MetadataManager(zkClient, new Configuration());
+        TableInfo tableInfo = metadataManager.getTable(tablePath);
+        TableDescriptor tableDescriptor = tableInfo.toTableDescriptor().withBucketCount(bucketNum);
+        admin.alterTable(tablePath, tableDescriptor, false).get();
+    }
+
     public static List<String> writeRowsToPartition(
             Connection connection, TablePath tablePath, Collection<String> partitions)
             throws Exception {

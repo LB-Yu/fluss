@@ -100,6 +100,20 @@ public class FlinkConnectorOptions {
                                     + "the new partitions for partitioned table while scanning."
                                     + " A non-positive value disables the partition discovery.");
 
+    public static final ConfigOption<Duration> SCAN_BUCKET_DISCOVERY_INTERVAL =
+            ConfigOptions.key("scan.bucket.discovery.interval")
+                    .durationType()
+                    .defaultValue(Duration.ofSeconds(10))
+                    .withDescription(
+                            "The time interval for the Fluss source to discover "
+                                    + "the new buckets for table while scanning."
+                                    + " A non-positive value disables the bucket discovery. "
+                                    + "For partitioned tables, if "
+                                    + SCAN_PARTITION_DISCOVERY_INTERVAL.key()
+                                    + " is also set, then the minimum value of "
+                                    + SCAN_PARTITION_DISCOVERY_INTERVAL.key()
+                                    + " and the current value will be used as the time interval for discovering partitions and buckets.");
+
     public static final ConfigOption<Boolean> SINK_IGNORE_DELETE =
             ConfigOptions.key("sink.ignore-delete")
                     .booleanType()

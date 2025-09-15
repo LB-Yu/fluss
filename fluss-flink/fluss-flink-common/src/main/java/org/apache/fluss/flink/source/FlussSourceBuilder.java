@@ -54,6 +54,7 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
  *     .setTable("orders")
  *     .setProjectedFields("orderId", "amount")
  *     .setScanPartitionDiscoveryIntervalMs(1000L)
+ *     .setScanBucketDiscoveryIntervalMs(1000L)
  *     .setStartingOffsets(OffsetsInitializer.earliest())
  *     .setDeserializationSchema(new OrderDeserializationSchema())
  *     .build();
@@ -69,6 +70,7 @@ public class FlussSourceBuilder<OUT> {
     private int[] projectedFields;
     private String[] projectedFieldNames;
     private Long scanPartitionDiscoveryIntervalMs;
+    private Long scanBucketDiscoveryIntervalMs;
     private OffsetsInitializer offsetsInitializer;
     private FlussDeserializationSchema<OUT> deserializationSchema;
 
@@ -128,6 +130,21 @@ public class FlussSourceBuilder<OUT> {
     public FlussSourceBuilder<OUT> setScanPartitionDiscoveryIntervalMs(
             long scanPartitionDiscoveryIntervalMs) {
         this.scanPartitionDiscoveryIntervalMs = scanPartitionDiscoveryIntervalMs;
+        return this;
+    }
+
+    /**
+     * Sets the scan bucket discovery interval in milliseconds.
+     *
+     * <p>If not specified, the default value from {@link
+     * FlinkConnectorOptions#SCAN_BUCKET_DISCOVERY_INTERVAL} is used.
+     *
+     * @param scanBucketDiscoveryIntervalMs interval in milliseconds
+     * @return this builder
+     */
+    public FlussSourceBuilder<OUT> setScanBucketDiscoveryIntervalMs(
+            long scanBucketDiscoveryIntervalMs) {
+        this.scanBucketDiscoveryIntervalMs = scanBucketDiscoveryIntervalMs;
         return this;
     }
 
@@ -225,6 +242,12 @@ public class FlussSourceBuilder<OUT> {
                             .toMillis();
         }
 
+        // if null use the default value:
+        if (scanBucketDiscoveryIntervalMs == null) {
+            scanBucketDiscoveryIntervalMs =
+                    FlinkConnectorOptions.SCAN_BUCKET_DISCOVERY_INTERVAL.defaultValue().toMillis();
+        }
+
         if (this.flussConf == null) {
             this.flussConf = new Configuration();
         }
@@ -299,6 +322,7 @@ public class FlussSourceBuilder<OUT> {
                 projectedFields,
                 offsetsInitializer,
                 scanPartitionDiscoveryIntervalMs,
+                scanBucketDiscoveryIntervalMs,
                 deserializationSchema,
                 true);
     }
