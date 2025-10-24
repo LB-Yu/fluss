@@ -51,6 +51,10 @@ public class RebalanceResultForBucket {
         return rebalancePlanForBucket.getNewReplicas();
     }
 
+    public int getNewLeader() {
+        return rebalancePlanForBucket.getNewLeader();
+    }
+
     public RebalanceResultForBucket setNewStatus(RebalanceStatusForBucket status) {
         this.rebalanceStatusForBucket = status;
         return this;
