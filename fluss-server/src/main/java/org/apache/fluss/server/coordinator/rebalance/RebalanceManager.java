@@ -62,7 +62,7 @@ import java.util.function.Supplier;
 public class RebalanceManager {
     private static final Logger LOG = LoggerFactory.getLogger(RebalanceManager.class);
     private final int[] backoffIntervals = {1, 5, 10, 15, 30}; // in seconds
-    private static final Duration TIMEOUT = Duration.ofMinutes(5);
+    private static final Duration TIMEOUT = Duration.ofMinutes(2);
     private static final Instant START_TIME = Instant.now();
 
     private final AtomicBoolean isClosed = new AtomicBoolean(false);

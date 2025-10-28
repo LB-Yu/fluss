@@ -1239,7 +1239,7 @@ public class CoordinatorEventProcessor implements EventProcessor {
         if (!isReassignmentComplete(tableBucket, reassignment)) {
             // A1. Send LeaderAndIsr request to every replica in ORS + TRS (with the new RS, AR and
             // RR).
-            updateLeaderEpochAndSendRequest(tableBucket, reassignment);
+            updateLeaderEpochAndSendRequest(tableBucket, reassignment.replicas);
 
             // A2. Set RS = TRS, AR = [], RR = [] in memory.
             coordinatorContext.updateBucketReplicaAssignment(tableBucket, reassignment.replicas);
@@ -1281,6 +1281,7 @@ public class CoordinatorEventProcessor implements EventProcessor {
                     null,
                     null,
                     Collections.singleton(tableBucket));
+            updateLeaderEpochAndSendRequest(tableBucket, targetReplicas);
             // B9. Mark the ongoing rebalance task to finish.
             rebalanceManager.finishRebalanceTask(tableBucket, RebalanceStatusForBucket.COMPLETED);
         }
@@ -1788,8 +1789,8 @@ public class CoordinatorEventProcessor implements EventProcessor {
         coordinatorRequestBatch.sendUpdateMetadataRequest();
     }
 
-    private void updateLeaderEpochAndSendRequest(
-            TableBucket tableBucket, ReplicaReassignment reassignment) throws Exception {
+    private void updateLeaderEpochAndSendRequest(TableBucket tableBucket, List<Integer> replicas)
+            throws Exception {
         Optional<LeaderAndIsr> leaderAndIsrOpt = zooKeeperClient.getLeaderAndIsr(tableBucket);
         if (!leaderAndIsrOpt.isPresent()) {
             return;
@@ -1807,12 +1808,12 @@ public class CoordinatorEventProcessor implements EventProcessor {
 
         coordinatorRequestBatch.newBatch();
         coordinatorRequestBatch.addNotifyLeaderRequestForTabletServers(
-                new HashSet<>(reassignment.replicas),
+                new HashSet<>(replicas),
                 PhysicalTablePath.of(
                         coordinatorContext.getTablePathById(tableBucket.getTableId()),
                         partitionName),
                 tableBucket,
-                reassignment.replicas,
+                replicas,
                 leaderAndIsr);
         coordinatorRequestBatch.sendRequestToTabletServers(
                 coordinatorContext.getCoordinatorEpoch());

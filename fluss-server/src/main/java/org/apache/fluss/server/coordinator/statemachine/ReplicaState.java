@@ -53,13 +53,13 @@ public enum ReplicaState implements BaseState<ReplicaState> {
         public Set<ReplicaState> getValidPreviousStates() {
             // ReplicaDeletionStarted as a valid previous state since
             // we will try to delete the replica when deletion fail
-            return EnumSet.of(OfflineReplica, ReplicaDeletionStarted);
+            return EnumSet.of(OfflineReplica, ReplicaDeletionStarted, ReplicaDeletionSuccessful);
         }
     },
     ReplicaDeletionSuccessful {
         @Override
         public Set<ReplicaState> getValidPreviousStates() {
-            return EnumSet.of(ReplicaDeletionStarted);
+            return EnumSet.of(ReplicaDeletionStarted, ReplicaDeletionSuccessful);
         }
     }
 }
