@@ -104,9 +104,9 @@
 
         <!-- 弹内的paimon plugin实现-->
         <file>
-            <source>../docker-inner/fluss-ali-lake-paimon-${project.version}.jar</source>
+            <source>../docker-inner/fluss-ali-alake-lake-paimon-${project.version}.jar</source>
             <outputDirectory>plugins/paimon/</outputDirectory>
-            <destName>fluss-ali-lake-paimon-${project.version}.jar</destName>
+            <destName>fluss-ali-alake-lake-paimon-${project.version}.jar</destName>
             <fileMode>0644</fileMode>
         </file>
 
