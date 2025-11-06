@@ -258,6 +258,8 @@ public class ServerRpcMessageUtils {
                         pbAlterConfig.getConfigKey(), pbAlterConfig.getConfigValue());
             case DELETE: // RESET_OPTION
                 return TableChange.reset(pbAlterConfig.getConfigKey());
+            case BUCKET_NUM:
+                return TableChange.bucketNum(Integer.parseInt(pbAlterConfig.getConfigValue()));
             case APPEND:
             case SUBTRACT:
             default:
