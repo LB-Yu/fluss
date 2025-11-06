@@ -32,6 +32,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
+import java.util.Arrays;
 import java.util.Collections;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -81,6 +82,15 @@ class PaimonLakeCatalogTest {
         table = flussPaimonCatalog.getPaimonCatalog().getTable(identifier);
         // we have reset the value for key
         assertThat(table.options().get("fluss.key")).isEqualTo(null);
+
+        // test for bucket.num
+        assertThat(table.options().get("fluss.bucket.num")).isEqualTo(null);
+        flussPaimonCatalog.alterTable(
+                tablePath,
+                Collections.singletonList(TableChange.bucketNum(3)),
+                new TestingLakeCatalogContext());
+        table = flussPaimonCatalog.getPaimonCatalog().getTable(identifier);
+        assertThat(table.options().get("fluss.bucket.num")).isEqualTo("3");
     }
 
     private void createTable(String database, String tableName) {

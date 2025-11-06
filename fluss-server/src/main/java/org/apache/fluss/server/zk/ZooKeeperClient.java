@@ -306,6 +306,16 @@ public class ZooKeeperClient implements AutoCloseable {
                 partitionId);
     }
 
+    public void updatePartitionAssignment(long partitionId, PartitionAssignment partitionAssignment)
+            throws Exception {
+        String path = PartitionIdZNode.path(partitionId);
+        zkClient.setData().forPath(path, PartitionIdZNode.encode(partitionAssignment));
+        LOG.info(
+                "Update partition assignment {} for partition id {}.",
+                partitionAssignment,
+                partitionId);
+    }
+
     public void deleteTableAssignment(long tableId) throws Exception {
         String path = TableIdZNode.path(tableId);
         zkClient.delete().deletingChildrenIfNeeded().forPath(path);
@@ -344,10 +354,14 @@ public class ZooKeeperClient implements AutoCloseable {
         // So we have to create parent dictionary in advance.
         RegisterTableBucketLeadAndIsrInfo firstInfo = registerList.get(0);
         String bucketsParentPath = BucketIdsZNode.path(firstInfo.getTableBucket());
-        zkClient.create()
-                .creatingParentsIfNeeded()
-                .withMode(CreateMode.PERSISTENT)
-                .forPath(bucketsParentPath);
+        // We need to check if the bucketsParentPath exists in advance, because when adding new
+        // buckets for an existing table, the bucketsParentPath already exists.
+        if (zkClient.checkExists().forPath(bucketsParentPath) == null) {
+            zkClient.create()
+                    .creatingParentsIfNeeded()
+                    .withMode(CreateMode.PERSISTENT)
+                    .forPath(bucketsParentPath);
+        }
 
         for (RegisterTableBucketLeadAndIsrInfo info : registerList) {
             LOG.info(
