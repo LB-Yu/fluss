@@ -306,16 +306,6 @@ public class ZooKeeperClient implements AutoCloseable {
                 partitionId);
     }
 
-    public void updatePartitionAssignment(long partitionId, PartitionAssignment partitionAssignment)
-            throws Exception {
-        String path = PartitionIdZNode.path(partitionId);
-        zkClient.setData().forPath(path, PartitionIdZNode.encode(partitionAssignment));
-        LOG.info(
-                "Update partition assignment {} for partition id {}.",
-                partitionAssignment,
-                partitionId);
-    }
-
     public void deleteTableAssignment(long tableId) throws Exception {
         String path = TableIdZNode.path(tableId);
         zkClient.delete().deletingChildrenIfNeeded().forPath(path);
