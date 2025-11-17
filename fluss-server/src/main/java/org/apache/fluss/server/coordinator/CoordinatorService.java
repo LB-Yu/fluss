@@ -367,7 +367,7 @@ public final class CoordinatorService extends RpcServiceBase implements Coordina
                 lakeCatalogContainer.getLakeCatalog(),
                 lakeTableTieringManager,
                 metadataCache,
-                new DefaultLakeCatalogContext(false, currentSession().getPrincipal())));
+                new DefaultLakeCatalogContext(false, currentSession().getPrincipal()));
 
         return CompletableFuture.completedFuture(new AlterTableResponse());
     }
