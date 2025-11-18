@@ -282,6 +282,12 @@ public final class TabletService extends RpcServiceBase implements TabletServerG
     @Override
     public CompletableFuture<NotifyLeaderAndIsrResponse> notifyLeaderAndIsr(
             NotifyLeaderAndIsrRequest notifyLeaderAndIsrRequest) {
+        // This method should only be called by Coordinator internally
+        if (!currentSession().isInternal()) {
+            throw new AuthorizationException(
+                    "notifyLeaderAndIsr can only be called by Coordinator internally, "
+                            + "external requests are not allowed.");
+        }
         CompletableFuture<NotifyLeaderAndIsrResponse> response = new CompletableFuture<>();
         List<NotifyLeaderAndIsrData> notifyLeaderAndIsrRequestData =
                 getNotifyLeaderAndIsrRequestData(notifyLeaderAndIsrRequest);
@@ -307,6 +313,12 @@ public final class TabletService extends RpcServiceBase implements TabletServerG
 
     @Override
     public CompletableFuture<UpdateMetadataResponse> updateMetadata(UpdateMetadataRequest request) {
+        // This method should only be called by Coordinator internally
+        if (!currentSession().isInternal()) {
+            throw new AuthorizationException(
+                    "updateMetadata can only be called by Coordinator internally, "
+                            + "external requests are not allowed.");
+        }
         int coordinatorEpoch =
                 request.hasCoordinatorEpoch()
                         ? request.getCoordinatorEpoch()
@@ -319,6 +331,12 @@ public final class TabletService extends RpcServiceBase implements TabletServerG
     @Override
     public CompletableFuture<StopReplicaResponse> stopReplica(
             StopReplicaRequest stopReplicaRequest) {
+        // This method should only be called by Coordinator internally
+        if (!currentSession().isInternal()) {
+            throw new AuthorizationException(
+                    "stopReplica can only be called by Coordinator internally, "
+                            + "external requests are not allowed.");
+        }
         CompletableFuture<StopReplicaResponse> response = new CompletableFuture<>();
         replicaManager.stopReplicas(
                 stopReplicaRequest.getCoordinatorEpoch(),
@@ -357,6 +375,12 @@ public final class TabletService extends RpcServiceBase implements TabletServerG
     @Override
     public CompletableFuture<NotifyRemoteLogOffsetsResponse> notifyRemoteLogOffsets(
             NotifyRemoteLogOffsetsRequest request) {
+        // This method should only be called by Coordinator internally
+        if (!currentSession().isInternal()) {
+            throw new AuthorizationException(
+                    "notifyRemoteLogOffsets can only be called by Coordinator internally, "
+                            + "external requests are not allowed.");
+        }
         CompletableFuture<NotifyRemoteLogOffsetsResponse> response = new CompletableFuture<>();
         replicaManager.notifyRemoteLogOffsets(
                 getNotifyRemoteLogOffsetsData(request), response::complete);
@@ -366,6 +390,12 @@ public final class TabletService extends RpcServiceBase implements TabletServerG
     @Override
     public CompletableFuture<NotifyKvSnapshotOffsetResponse> notifyKvSnapshotOffset(
             NotifyKvSnapshotOffsetRequest request) {
+        // This method should only be called by Coordinator internally
+        if (!currentSession().isInternal()) {
+            throw new AuthorizationException(
+                    "notifyKvSnapshotOffset can only be called by Coordinator internally, "
+                            + "external requests are not allowed.");
+        }
         CompletableFuture<NotifyKvSnapshotOffsetResponse> response = new CompletableFuture<>();
         replicaManager.notifyKvSnapshotOffset(
                 getNotifySnapshotOffsetData(request), response::complete);
@@ -375,6 +405,12 @@ public final class TabletService extends RpcServiceBase implements TabletServerG
     @Override
     public CompletableFuture<NotifyLakeTableOffsetResponse> notifyLakeTableOffset(
             NotifyLakeTableOffsetRequest request) {
+        // This method should only be called by Coordinator internally
+        if (!currentSession().isInternal()) {
+            throw new AuthorizationException(
+                    "notifyLakeTableOffset can only be called by Coordinator internally, "
+                            + "external requests are not allowed.");
+        }
         CompletableFuture<NotifyLakeTableOffsetResponse> response = new CompletableFuture<>();
         replicaManager.notifyLakeTableOffset(getNotifyLakeTableOffset(request), response::complete);
         return response;
