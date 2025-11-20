@@ -145,9 +145,22 @@ final class LogLoader {
         // Additionally, using 0 versus using logStartOffset does not affect correctness—they both
         // can restore the complete WriterState. The only difference is that using logStartOffset
         // can potentially skip over more segments.
+        long rebuildWriterStataStart = System.currentTimeMillis();
         LogTablet.rebuildWriterState(
                 writerStateManager, logSegments, 0, segment.getBaseOffset(), false);
+        long rebuildWriterStateEnd = System.currentTimeMillis();
+        LOG.info(
+                "Rebuilt writer state for bucket {} in {} ms",
+                logSegments.getTableBucket(),
+                rebuildWriterStateEnd - rebuildWriterStataStart);
+        long segmentRecoverStart = System.currentTimeMillis();
         int bytesTruncated = segment.recover();
+        long segmentRecoverEnd = System.currentTimeMillis();
+        LOG.info(
+                "Segment recover {} for bucket {} in {} ms",
+                segment.getBaseOffset(),
+                logSegments.getTableBucket(),
+                segmentRecoverEnd - segmentRecoverStart);
         // once we have recovered the segment's data, take a snapshot to ensure that we won't
         // need to reload the same segment again while recovering another segment.
         writerStateManager.takeSnapshot();
@@ -174,6 +187,7 @@ final class LogLoader {
             boolean truncated = false;
             int numFlushed = 1;
 
+            long recoveryStart = System.currentTimeMillis();
             while (unflushedIter.hasNext() && !truncated) {
                 LogSegment segment = unflushedIter.next();
                 LOG.info(
@@ -185,7 +199,14 @@ final class LogLoader {
 
                 int truncatedBytes = -1;
                 try {
+                    long recoverySegmentStart = System.currentTimeMillis();
                     truncatedBytes = recoverSegment(segment);
+                    long recoverySegmentEnd = System.currentTimeMillis();
+                    LOG.info(
+                            "Recovered segment {} for bucket {} in {} ms",
+                            segment.getBaseOffset(),
+                            logSegments.getTableBucket(),
+                            recoverySegmentEnd - recoverySegmentStart);
                 } catch (Exception e) {
                     if (e instanceof InvalidOffsetException) {
                         long startOffset = segment.getBaseOffset();
@@ -213,6 +234,11 @@ final class LogLoader {
                     numFlushed += 1;
                 }
             }
+            long recoveryEnd = System.currentTimeMillis();
+            LOG.info(
+                    "Recovery for bucket {} completed in {} ms",
+                    logSegments.getTableBucket(),
+                    recoveryEnd - recoveryStart);
         }
 
         if (logSegments.isEmpty()) {
