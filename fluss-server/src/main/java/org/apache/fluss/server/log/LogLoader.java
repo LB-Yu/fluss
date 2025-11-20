@@ -179,7 +179,7 @@ final class LogLoader {
      *     overflow
      */
     private Tuple2<Long, Long> recoverLog() throws IOException {
-        if (!isCleanShutdown) {
+        if (true) {
             List<LogSegment> unflushed =
                     logSegments.values(recoveryPointCheckpoint, Long.MAX_VALUE);
             int numUnflushed = unflushed.size();
