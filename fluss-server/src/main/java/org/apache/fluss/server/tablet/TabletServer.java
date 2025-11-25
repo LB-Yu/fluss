@@ -382,6 +382,10 @@ public class TabletServer extends ServerBase {
             }
 
             try {
+                if (dynamicConfigManager != null) {
+                    dynamicConfigManager.close();
+                }
+
                 if (zkClient != null) {
                     zkClient.close();
                 }
@@ -421,10 +425,6 @@ public class TabletServer extends ServerBase {
 
                 if (authorizer != null) {
                     authorizer.close();
-                }
-
-                if (dynamicConfigManager != null) {
-                    dynamicConfigManager.close();
                 }
 
                 if (lakeCatalogDynamicLoader != null) {
