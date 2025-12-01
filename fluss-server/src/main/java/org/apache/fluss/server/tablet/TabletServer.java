@@ -285,7 +285,7 @@ public class TabletServer extends ServerBase {
     protected CompletableFuture<Result> closeAsync(Result result) {
         if (isShutDown.compareAndSet(false, true)) {
             LOG.info("Shutting down Tablet server ({}).", result);
-            controlledShutDown();
+            // controlledShutDown();
 
             CompletableFuture<Void> serviceShutdownFuture = stopServices();
 
