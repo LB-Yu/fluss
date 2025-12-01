@@ -19,11 +19,9 @@ package org.apache.fluss.server.log;
 
 import org.apache.fluss.config.ConfigOptions;
 import org.apache.fluss.config.Configuration;
-import org.apache.fluss.exception.InvalidOffsetException;
 import org.apache.fluss.exception.LogSegmentOffsetOverflowException;
 import org.apache.fluss.exception.LogStorageException;
 import org.apache.fluss.metadata.LogFormat;
-import org.apache.fluss.server.exception.CorruptIndexException;
 import org.apache.fluss.utils.FlussPaths;
 import org.apache.fluss.utils.types.Tuple2;
 
@@ -33,7 +31,6 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.nio.file.NoSuchFileException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -113,8 +110,18 @@ final class LogLoader {
         // Additionally, using 0 versus using logStartOffset does not affect correctness—they both
         // can restore the complete WriterState. The only difference is that using logStartOffset
         // can potentially skip over more segments.
+        LOG.info(
+                "In load for bucket {}, end offset {}, before rebuild: {}",
+                logSegments.getTableBucket(),
+                writerStateManager.mapEndOffset(),
+                writerStateManager.toJsonString());
         LogTablet.rebuildWriterState(
                 writerStateManager, logSegments, 0, nextOffset, isCleanShutdown);
+        LOG.info(
+                "In load for bucket {}, end offset {}, after rebuild: {}",
+                logSegments.getTableBucket(),
+                writerStateManager.mapEndOffset(),
+                writerStateManager.toJsonString());
 
         LogSegment activeSegment = logSegments.lastSegment().get();
         activeSegment.resizeIndexes((int) conf.get(ConfigOptions.LOG_INDEX_FILE_SIZE).getBytes());
@@ -136,60 +143,64 @@ final class LogLoader {
      *     overflow
      */
     private Tuple2<Long, Long> recoverLog() throws IOException {
-        if (!isCleanShutdown) {
-            List<LogSegment> unflushed =
-                    logSegments.values(recoveryPointCheckpoint, Long.MAX_VALUE);
-            int numUnflushed = unflushed.size();
-            Iterator<LogSegment> unflushedIter = unflushed.iterator();
-            boolean truncated = false;
-            int numFlushed = 1;
-
-            while (unflushedIter.hasNext() && !truncated) {
-                LogSegment segment = unflushedIter.next();
-                LOG.info(
-                        "Recovering unflushed segment {}. {}/{} recovered for bucket {}",
-                        segment.getBaseOffset(),
-                        numFlushed,
-                        numUnflushed,
-                        logSegments.getTableBucket());
-
-                try {
-                    segment.sanityCheck();
-                } catch (NoSuchFileException | CorruptIndexException e) {
-                    LOG.warn(
-                            "Found invalid index file corresponding log file {} for bucket {}, "
-                                    + "recovering segment and rebuilding index files...",
-                            segment.getFileLogRecords().file().getAbsoluteFile(),
-                            logSegments.getTableBucket(),
-                            e);
-
-                    int truncatedBytes = -1;
-                    try {
-                        truncatedBytes = recoverSegment(segment);
-                    } catch (InvalidOffsetException invalidOffsetException) {
-                        long startOffset = segment.getBaseOffset();
-                        LOG.warn(
-                                "Found invalid offset during recovery for bucket {}. Deleting the corrupt segment "
-                                        + "and creating an empty one with starting offset {}",
-                                logSegments.getTableBucket(),
-                                startOffset);
-                        truncatedBytes = segment.truncateTo(startOffset);
-                    }
-
-                    if (truncatedBytes > 0) {
-                        // we had an invalid message, delete all remaining log
-                        LOG.warn(
-                                "Corruption found in segment {} for bucket {}, truncating to offset {}",
-                                segment.getBaseOffset(),
-                                logSegments.getTableBucket(),
-                                segment.readNextOffset());
-                        removeAndDeleteSegments(unflushedIter);
-                        truncated = true;
-                    }
-                }
-                numFlushed += 1;
-            }
-        }
+        //        if (!isCleanShutdown) {
+        //            List<LogSegment> unflushed =
+        //                    logSegments.values(recoveryPointCheckpoint, Long.MAX_VALUE);
+        //            int numUnflushed = unflushed.size();
+        //            Iterator<LogSegment> unflushedIter = unflushed.iterator();
+        //            boolean truncated = false;
+        //            int numFlushed = 1;
+        //
+        //            while (unflushedIter.hasNext() && !truncated) {
+        //                LogSegment segment = unflushedIter.next();
+        //                LOG.info(
+        //                        "Recovering unflushed segment {}. {}/{} recovered for bucket {}",
+        //                        segment.getBaseOffset(),
+        //                        numFlushed,
+        //                        numUnflushed,
+        //                        logSegments.getTableBucket());
+        //
+        //                try {
+        //                    segment.sanityCheck();
+        //                } catch (NoSuchFileException | CorruptIndexException e) {
+        //                    LOG.warn(
+        //                            "Found invalid index file corresponding log file {} for bucket
+        // {}, "
+        //                                    + "recovering segment and rebuilding index files...",
+        //                            segment.getFileLogRecords().file().getAbsoluteFile(),
+        //                            logSegments.getTableBucket(),
+        //                            e);
+        //
+        //                    int truncatedBytes = -1;
+        //                    try {
+        //                        truncatedBytes = recoverSegment(segment);
+        //                    } catch (InvalidOffsetException invalidOffsetException) {
+        //                        long startOffset = segment.getBaseOffset();
+        //                        LOG.warn(
+        //                                "Found invalid offset during recovery for bucket {}.
+        // Deleting the corrupt segment "
+        //                                        + "and creating an empty one with starting offset
+        // {}",
+        //                                logSegments.getTableBucket(),
+        //                                startOffset);
+        //                        truncatedBytes = segment.truncateTo(startOffset);
+        //                    }
+        //
+        //                    if (truncatedBytes > 0) {
+        //                        // we had an invalid message, delete all remaining log
+        //                        LOG.warn(
+        //                                "Corruption found in segment {} for bucket {}, truncating
+        // to offset {}",
+        //                                segment.getBaseOffset(),
+        //                                logSegments.getTableBucket(),
+        //                                segment.readNextOffset());
+        //                        removeAndDeleteSegments(unflushedIter);
+        //                        truncated = true;
+        //                    }
+        //                }
+        //                numFlushed += 1;
+        //            }
+        //        }
 
         // TODO truncate log to recover maybe unflush segments.
         if (logSegments.isEmpty()) {
@@ -264,12 +275,24 @@ final class LogLoader {
         // Additionally, using 0 versus using logStartOffset does not affect correctness—they both
         // can restore the complete WriterState. The only difference is that using logStartOffset
         // can potentially skip over more segments.
+        LOG.info(
+                "In recoverSegment for bucket {} for segment {}, end offset {}, before rebuild: {}",
+                logSegments.getTableBucket(),
+                segment.getBaseOffset(),
+                writerStateManager.mapEndOffset(),
+                writerStateManager.toJsonString());
         LogTablet.rebuildWriterState(
                 writerStateManager, logSegments, 0, segment.getBaseOffset(), false);
         int bytesTruncated = segment.recover();
         // once we have recovered the segment's data, take a snapshot to ensure that we won't
         // need to reload the same segment again while recovering another segment.
         writerStateManager.takeSnapshot();
+        LOG.info(
+                "In recoverSegment for bucket {} for segment {}, end offset {}, after rebuild: {}",
+                logSegments.getTableBucket(),
+                segment.getBaseOffset(),
+                writerStateManager.mapEndOffset(),
+                writerStateManager.toJsonString());
         return bytesTruncated;
     }
 
