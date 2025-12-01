@@ -478,6 +478,22 @@ public class WriterStateManager {
         }
     }
 
+    public String toJsonString() {
+        List<WriterSnapshotEntry> snapshotEntries = new ArrayList<>();
+        writers.forEach(
+                (writerId, writerStateEntry) ->
+                        snapshotEntries.add(
+                                new WriterSnapshotEntry(
+                                        writerId,
+                                        writerStateEntry.lastBatchSequence(),
+                                        writerStateEntry.lastDataOffset(),
+                                        writerStateEntry.lastOffsetDelta(),
+                                        writerStateEntry.lastBatchTimestamp())));
+        byte[] jsonBytes = new WriterSnapshotMap(snapshotEntries).toJsonBytes();
+
+        return new String(jsonBytes);
+    }
+
     /** Writer snapshot map json serde. */
     public static class WriterSnapshotMapJsonSerde
             implements JsonSerializer<WriterSnapshotMap>, JsonDeserializer<WriterSnapshotMap> {

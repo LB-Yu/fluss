@@ -113,8 +113,10 @@ final class LogLoader {
         // Additionally, using 0 versus using logStartOffset does not affect correctness—they both
         // can restore the complete WriterState. The only difference is that using logStartOffset
         // can potentially skip over more segments.
+        LOG.info("In load, before rebuild: {}", writerStateManager.toJsonString());
         LogTablet.rebuildWriterState(
                 writerStateManager, logSegments, 0, nextOffset, isCleanShutdown);
+        LOG.info("In load, after rebuild: {}", writerStateManager.toJsonString());
 
         LogSegment activeSegment = logSegments.lastSegment().get();
         activeSegment.resizeIndexes((int) conf.get(ConfigOptions.LOG_INDEX_FILE_SIZE).getBytes());
@@ -264,12 +266,14 @@ final class LogLoader {
         // Additionally, using 0 versus using logStartOffset does not affect correctness—they both
         // can restore the complete WriterState. The only difference is that using logStartOffset
         // can potentially skip over more segments.
+        LOG.info("In recoverSegment, before rebuild: {}", writerStateManager.toJsonString());
         LogTablet.rebuildWriterState(
                 writerStateManager, logSegments, 0, segment.getBaseOffset(), false);
         int bytesTruncated = segment.recover();
         // once we have recovered the segment's data, take a snapshot to ensure that we won't
         // need to reload the same segment again while recovering another segment.
         writerStateManager.takeSnapshot();
+        LOG.info("In recoverSegment, after rebuild: {}", writerStateManager.toJsonString());
         return bytesTruncated;
     }
 
