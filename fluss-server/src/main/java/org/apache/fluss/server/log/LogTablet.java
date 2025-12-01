@@ -1256,6 +1256,10 @@ public final class LogTablet {
                     FetchDataInfo fetchDataInfo =
                             segment.read(startOffset, Integer.MAX_VALUE, maxPosition, false);
                     if (fetchDataInfo != null) {
+                        LOG.info(
+                                "Loading writer state for bucket {} from segment {}",
+                                segments.getTableBucket(),
+                                segment);
                         loadWritersFromRecords(writerStateManager, fetchDataInfo.getRecords());
                     }
                 }
