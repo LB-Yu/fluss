@@ -72,4 +72,23 @@ public class AppendSinkWriter<InputT> extends FlinkSinkWriter<InputT> {
     TableWriter getTableWriter() {
         return appendWriter;
     }
+
+    @Override
+    protected void updateTable() {
+        appendWriter.flush();
+
+        try {
+            table.close();
+        } catch (Exception e) {
+            LOG.warn("Exception occurs while closing Fluss table before update table.", e);
+        }
+
+        table = connection.getTable(tablePath);
+        appendWriter = table.newAppend().createWriter();
+
+        LOG.info(
+                "Update table {}, current bucket {}.",
+                tablePath,
+                table.getTableInfo().getNumBuckets());
+    }
 }

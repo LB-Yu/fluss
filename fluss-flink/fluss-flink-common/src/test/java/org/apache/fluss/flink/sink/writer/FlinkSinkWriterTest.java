@@ -20,6 +20,8 @@ package org.apache.fluss.flink.sink.writer;
 import org.apache.fluss.client.Connection;
 import org.apache.fluss.client.ConnectionFactory;
 import org.apache.fluss.client.admin.Admin;
+import org.apache.fluss.client.table.Table;
+import org.apache.fluss.client.table.scanner.log.LogScanner;
 import org.apache.fluss.config.ConfigOptions;
 import org.apache.fluss.config.Configuration;
 import org.apache.fluss.exception.NetworkException;
@@ -27,6 +29,7 @@ import org.apache.fluss.flink.sink.serializer.RowDataSerializationSchema;
 import org.apache.fluss.flink.utils.FlinkTestBase;
 import org.apache.fluss.metadata.DatabaseDescriptor;
 import org.apache.fluss.metadata.Schema;
+import org.apache.fluss.metadata.TableBucket;
 import org.apache.fluss.metadata.TableChange;
 import org.apache.fluss.metadata.TableDescriptor;
 import org.apache.fluss.metadata.TablePath;
@@ -51,7 +54,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.lang.reflect.Field;
+import java.time.Duration;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
 import java.util.function.BiConsumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -263,6 +271,137 @@ public class FlinkSinkWriterTest extends FlinkTestBase {
                 tableRowType,
                 mailboxExecutor,
                 serializationSchema);
+    }
+
+    @Test
+    void testTableInfoAutoUpdate() throws Exception {
+        String testDb = "test-auto-update-db";
+        TablePath testTablePath = TablePath.of(testDb, "test-auto-update-table");
+
+        // Create database
+        admin.createDatabase(testDb, DatabaseDescriptor.EMPTY, true).get();
+
+        // Create log table with 3 buckets (no primary key)
+        TableDescriptor tableDescriptor =
+                TableDescriptor.builder()
+                        .schema(
+                                Schema.newBuilder()
+                                        .column("id", DataTypes.INT())
+                                        .column("name", DataTypes.STRING())
+                                        .build())
+                        .distributedBy(3)
+                        .build();
+        createTable(testTablePath, tableDescriptor);
+
+        Configuration clientConfig = FLUSS_CLUSTER_EXTENSION.getClientConfig();
+        MockWriterInitContext mockWriterInitContext =
+                new MockWriterInitContext(new InterceptingOperatorMetricGroup());
+
+        // Create AppendSinkWriter
+        RowType tableRowType =
+                RowType.of(
+                        new LogicalType[] {new IntType(), new CharType(10)},
+                        new String[] {"id", "name"});
+        RowDataSerializationSchema serializationSchema =
+                new RowDataSerializationSchema(true, false);
+        AppendSinkWriter<RowData> writer =
+                new AppendSinkWriter<>(
+                        testTablePath,
+                        clientConfig,
+                        tableRowType,
+                        mockWriterInitContext.getMailboxExecutor(),
+                        serializationSchema);
+
+        try {
+            writer.initialize(mockWriterInitContext.metricGroup());
+
+            // Step 1: Write data with 3 buckets, verify success
+            for (int i = 0; i < 10; i++) {
+                writer.write(
+                        GenericRowData.of(i, StringData.fromString("name" + i)),
+                        new MockSinkWriterContext());
+            }
+            writer.flush(false);
+
+            // Verify data is written to 3 buckets
+            Map<Integer, Integer> bucketCounts = countRecordsPerBucket(testTablePath, 3);
+            assertThat(bucketCounts.size()).isEqualTo(3);
+            int totalRecords = bucketCounts.values().stream().mapToInt(Integer::intValue).sum();
+            assertThat(totalRecords).isEqualTo(10);
+
+            // Step 2: Alter table bucket number to 4
+            admin.alterTable(
+                            testTablePath,
+                            Collections.singletonList(TableChange.set("bucket.num", "4")),
+                            false)
+                    .get();
+
+            // Wait for schema sync
+            FLUSS_CLUSTER_EXTENSION.waitAllSchemaSync(testTablePath, 2);
+
+            // Step 3: Force update table by setting lastRefreshTime to trigger refresh
+            Field lastRefreshTimeField = FlinkSinkWriter.class.getDeclaredField("lastRefreshTime");
+            lastRefreshTimeField.setAccessible(true);
+            lastRefreshTimeField.set(
+                    writer, System.currentTimeMillis() - 61000); // Set to 61 seconds ago
+
+            // Step 4: Write more data, should use 4 buckets now
+            for (int i = 10; i < 20; i++) {
+                writer.write(
+                        GenericRowData.of(i, StringData.fromString("name" + i)),
+                        new MockSinkWriterContext());
+            }
+            writer.flush(false);
+
+            // Step 5: Verify data is written to 4 buckets
+            Map<Integer, Integer> newBucketCounts = countRecordsPerBucket(testTablePath, 4);
+            assertThat(newBucketCounts.size()).isEqualTo(4);
+            int newTotalRecords =
+                    newBucketCounts.values().stream().mapToInt(Integer::intValue).sum();
+            assertThat(newTotalRecords).isEqualTo(20); // Total records from both writes
+
+            // Verify that we have records in all 4 buckets
+            Set<Integer> bucketsWithData = newBucketCounts.keySet();
+            assertThat(bucketsWithData).hasSize(4);
+            for (int bucket = 0; bucket < 4; bucket++) {
+                assertThat(bucketsWithData).contains(bucket);
+            }
+        } finally {
+            writer.close();
+        }
+    }
+
+    private Map<Integer, Integer> countRecordsPerBucket(TablePath tablePath, int expectedBuckets)
+            throws Exception {
+        Map<Integer, Integer> bucketCounts = new HashMap<>();
+        Configuration clientConfig = FLUSS_CLUSTER_EXTENSION.getClientConfig();
+        try (Connection connection = ConnectionFactory.createConnection(clientConfig);
+                Table table = connection.getTable(tablePath);
+                LogScanner logScanner = table.newScan().createLogScanner()) {
+            // Subscribe to all buckets from beginning
+            for (int bucket = 0; bucket < expectedBuckets; bucket++) {
+                logScanner.subscribeFromBeginning(bucket);
+            }
+
+            // Collect all records and count by bucket
+            int totalScanned = 0;
+            int maxRecords = 50; // Limit to avoid infinite loop
+            while (totalScanned < maxRecords) {
+                org.apache.fluss.client.table.scanner.log.ScanRecords scanRecords =
+                        logScanner.poll(Duration.ofSeconds(1));
+                if (scanRecords.isEmpty()) {
+                    break;
+                }
+                for (TableBucket tableBucket : scanRecords.buckets()) {
+                    int bucketId = tableBucket.getBucket();
+                    int recordCount = scanRecords.records(tableBucket).size();
+                    bucketCounts.put(
+                            bucketId, bucketCounts.getOrDefault(bucketId, 0) + recordCount);
+                    totalScanned += recordCount;
+                }
+            }
+        }
+        return bucketCounts;
     }
 
     static class MockSinkWriterContext implements SinkWriter.Context {

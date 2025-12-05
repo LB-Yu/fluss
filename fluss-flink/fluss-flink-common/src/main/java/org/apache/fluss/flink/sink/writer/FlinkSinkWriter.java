@@ -56,14 +56,16 @@ public abstract class FlinkSinkWriter<InputT> implements SinkWriter<InputT> {
 
     protected static final Logger LOG = LoggerFactory.getLogger(FlinkSinkWriter.class);
 
-    private final TablePath tablePath;
+    private static final int REFRESH_INTERVAL_MS = 60_000;
+
+    protected final TablePath tablePath;
     private final Configuration flussConfig;
     protected final RowType tableRowType;
     protected final @Nullable int[] targetColumnIndexes;
     private final MailboxExecutor mailboxExecutor;
     private final FlussSerializationSchema<InputT> serializationSchema;
 
-    private transient Connection connection;
+    protected transient Connection connection;
     protected transient Table table;
     protected transient FlinkMetricRegistry flinkMetricRegistry;
 
@@ -72,6 +74,8 @@ public abstract class FlinkSinkWriter<InputT> implements SinkWriter<InputT> {
     private transient Counter numRecordsOutCounter;
     private transient Counter numRecordsOutErrorsCounter;
     private volatile Throwable asyncWriterException;
+
+    private volatile long lastRefreshTime;
 
     public FlinkSinkWriter(
             TablePath tablePath,
@@ -114,6 +118,7 @@ public abstract class FlinkSinkWriter<InputT> implements SinkWriter<InputT> {
                 table.getTableInfo().getSchema(),
                 tableRowType);
         sanityCheck(table.getTableInfo());
+        lastRefreshTime = System.currentTimeMillis();
 
         try {
             this.serializationSchema.open(
@@ -160,6 +165,11 @@ public abstract class FlinkSinkWriter<InputT> implements SinkWriter<InputT> {
             numRecordsOutCounter.inc();
         } catch (Exception e) {
             throw new IOException(e.getMessage(), e);
+        }
+
+        if (System.currentTimeMillis() - lastRefreshTime > REFRESH_INTERVAL_MS) {
+            updateTable();
+            lastRefreshTime = System.currentTimeMillis();
         }
     }
 
@@ -242,4 +252,6 @@ public abstract class FlinkSinkWriter<InputT> implements SinkWriter<InputT> {
 
     @VisibleForTesting
     abstract TableWriter getTableWriter();
+
+    protected void updateTable() {}
 }
