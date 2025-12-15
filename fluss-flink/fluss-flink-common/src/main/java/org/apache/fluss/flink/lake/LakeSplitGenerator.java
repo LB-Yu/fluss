@@ -32,6 +32,9 @@ import org.apache.fluss.metadata.TableBucket;
 import org.apache.fluss.metadata.TableInfo;
 import org.apache.fluss.utils.ExceptionUtils;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import javax.annotation.Nullable;
 
 import java.util.ArrayList;
@@ -51,6 +54,8 @@ import static org.apache.fluss.metadata.ResolvedPartitionSpec.PARTITION_SPEC_SEP
 
 /** A generator for lake splits. */
 public class LakeSplitGenerator {
+
+    private static final Logger LOG = LoggerFactory.getLogger(LakeSplitGenerator.class);
 
     private final TableInfo tableInfo;
     private final Admin flussAdmin;
@@ -88,6 +93,7 @@ public class LakeSplitGenerator {
         LakeSnapshot lakeSnapshotInfo;
         try {
             lakeSnapshotInfo = flussAdmin.getLatestLakeSnapshot(tableInfo.getTablePath()).get();
+            LOG.info("Get lake snapshot info: {}", lakeSnapshotInfo);
         } catch (Exception exception) {
             if (ExceptionUtils.stripExecutionException(exception)
                     instanceof LakeTableSnapshotNotExistException) {
@@ -105,6 +111,7 @@ public class LakeSplitGenerator {
                                 .createPlanner(
                                         (LakeSource.PlannerContext) lakeSnapshotInfo::getSnapshotId)
                                 .plan());
+        LOG.info("Group lake splits: {}", lakeSplits);
 
         Map<TableBucket, Long> tableBucketsOffset = lakeSnapshotInfo.getTableBucketsOffset();
         if (isPartitioned) {

@@ -258,6 +258,7 @@ public class FlinkSourceEnumerator
                     // we'll need to consider lake splits
                     List<SourceSplitBase> hybridLakeFlussSplits = generateHybridLakeFlussSplits();
                     if (hybridLakeFlussSplits != null) {
+                        LOG.info("Generated hybrid lake splits: {}", hybridLakeFlussSplits);
                         // handle hybrid lake fluss splits firstly
                         handleSplitsAdd(hybridLakeFlussSplits, null);
                     }
@@ -616,6 +617,7 @@ public class FlinkSourceEnumerator
         // should be restored from checkpoint, shouldn't
         // list splits again
         if (pendingHybridLakeFlussSplits != null) {
+            LOG.info("Still have pending lake fluss splits, shouldn't list splits again.");
             return pendingHybridLakeFlussSplits;
         }
         try {
@@ -659,6 +661,7 @@ public class FlinkSourceEnumerator
                                 split ->
                                         removedPartitionsMap.containsKey(
                                                 split.getTableBucket().getPartitionId())));
+        LOG.info("Removed partitions {}", removedPartitionsMap);
 
         // send partition removed event to all readers
         PartitionsRemovedEvent event = new PartitionsRemovedEvent(removedPartitionsMap);
@@ -709,6 +712,8 @@ public class FlinkSourceEnumerator
     private void assignPendingSplits(Set<Integer> pendingReaders) {
         Map<Integer, List<SourceSplitBase>> incrementalAssignment = new HashMap<>();
 
+        LOG.info("Assigning pending splits to readers {}", pendingReaders);
+        LOG.info("Pending split assignment {}", pendingSplitAssignment);
         // Check if there's any pending splits for given readers
         for (int pendingReader : pendingReaders) {
             checkReaderRegistered(pendingReader);
@@ -758,6 +763,8 @@ public class FlinkSourceEnumerator
         if (!incrementalAssignment.isEmpty()) {
             LOG.info("Assigning splits to readers {}", incrementalAssignment);
             context.assignSplits(new SplitsAssignment<>(incrementalAssignment));
+        } else {
+            LOG.info("No pending splits to assign to readers {}", pendingReaders);
         }
 
         if (noMoreNewSplits) {
