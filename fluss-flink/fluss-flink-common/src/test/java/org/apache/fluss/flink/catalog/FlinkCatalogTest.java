@@ -172,7 +172,6 @@ class FlinkCatalogTest {
                 bootstrapServers,
                 Thread.currentThread().getContextClassLoader(),
                 Collections.emptyMap(),
-                Collections::emptyMap,
                 lakeFlinkCatalog);
     }
 
@@ -646,8 +645,7 @@ class FlinkCatalogTest {
                                                 ",",
                                                 flussConf.get(ConfigOptions.BOOTSTRAP_SERVERS)),
                                         Thread.currentThread().getContextClassLoader(),
-                                        Collections.emptyMap(),
-                                        Collections::emptyMap))
+                                        Collections.emptyMap()))
                 .hasMessageContaining("defaultDatabase cannot be null or empty");
     }
 
@@ -835,8 +833,7 @@ class FlinkCatalogTest {
                         "default",
                         "invalid-bootstrap-server:9092",
                         Thread.currentThread().getContextClassLoader(),
-                        Collections.emptyMap(),
-                        Collections::emptyMap);
+                        Collections.emptyMap());
 
         // Test open() throws proper exception
         assertThatThrownBy(() -> badCatalog.open())
@@ -966,8 +963,7 @@ class FlinkCatalogTest {
                         DEFAULT_DB,
                         String.join(",", flussConf.get(BOOTSTRAP_SERVERS)),
                         Thread.currentThread().getContextClassLoader(),
-                        securityConfigs,
-                        Collections::emptyMap);
+                        securityConfigs);
         securedCatalog.open();
 
         try {
@@ -1010,8 +1006,7 @@ class FlinkCatalogTest {
         }
 
         @Override
-        public Catalog getLakeCatalog(
-                Configuration tableOptions, Map<String, String> lakeCatalogProperties) {
+        public Catalog getLakeCatalog(Configuration tableOptions) {
             return catalog;
         }
 

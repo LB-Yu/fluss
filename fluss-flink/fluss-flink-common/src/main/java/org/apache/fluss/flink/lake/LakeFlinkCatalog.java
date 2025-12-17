@@ -21,7 +21,6 @@ import org.apache.fluss.config.ConfigOptions;
 import org.apache.fluss.config.Configuration;
 import org.apache.fluss.flink.utils.DataLakeUtils;
 import org.apache.fluss.metadata.DataLakeFormat;
-import org.apache.fluss.utils.PropertiesUtils;
 
 import org.apache.flink.table.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
@@ -50,8 +49,7 @@ public class LakeFlinkCatalog implements AutoCloseable {
         this.classLoader = classLoader;
     }
 
-    public Catalog getLakeCatalog(
-            Configuration tableOptions, Map<String, String> lakeCatalogProperties) {
+    public Catalog getLakeCatalog(Configuration tableOptions) {
         // TODO: Currently, a Fluss cluster only supports a single DataLake storage.
         // However, in the
         //  future, it may support multiple DataLakes. The following code assumes
@@ -71,19 +69,12 @@ public class LakeFlinkCatalog implements AutoCloseable {
                                         + ConfigOptions.TABLE_DATALAKE_FORMAT.key()
                                         + "' is set.");
                     }
-                    Map<String, String> catalogProperties =
-                            PropertiesUtils.extractAndRemovePrefix(
-                                    lakeCatalogProperties, lakeFormat + ".");
-
-                    catalogProperties.putAll(
-                            DataLakeUtils.extractLakeCatalogProperties(tableOptions));
                     if (lakeFormat == PAIMON) {
                         catalog =
-                                PaimonCatalogFactory.create(
-                                        catalogName, catalogProperties, classLoader);
+                                PaimonCatalogFactory.create(catalogName, tableOptions, classLoader);
                         this.lakeFormat = PAIMON;
                     } else if (lakeFormat == ICEBERG) {
-                        catalog = IcebergCatalogFactory.create(catalogName, catalogProperties);
+                        catalog = IcebergCatalogFactory.create(catalogName, tableOptions);
                         this.lakeFormat = ICEBERG;
                     } else {
                         throw new UnsupportedOperationException(
@@ -120,9 +111,9 @@ public class LakeFlinkCatalog implements AutoCloseable {
         private PaimonCatalogFactory() {}
 
         public static Catalog create(
-                String catalogName,
-                Map<String, String> catalogProperties,
-                ClassLoader classLoader) {
+                String catalogName, Configuration tableOptions, ClassLoader classLoader) {
+            Map<String, String> catalogProperties =
+                    DataLakeUtils.extractLakeCatalogProperties(tableOptions);
             return FlinkCatalogFactory.createCatalog(
                     catalogName,
                     CatalogContext.create(
@@ -140,7 +131,9 @@ public class LakeFlinkCatalog implements AutoCloseable {
         // requires Iceberg 1.5.0+.
         // Using reflection to maintain Java 8 compatibility.
         // Once Fluss drops Java 8, we can remove the reflection code
-        public static Catalog create(String catalogName, Map<String, String> catalogProperties) {
+        public static Catalog create(String catalogName, Configuration tableOptions) {
+            Map<String, String> catalogProperties =
+                    DataLakeUtils.extractLakeCatalogProperties(tableOptions);
             // Map "type" to "catalog-type" (equivalent)
             // Required: either "catalog-type" (standard type) or "catalog-impl"
             // (fully-qualified custom class, mandatory if "catalog-type" is missing)
