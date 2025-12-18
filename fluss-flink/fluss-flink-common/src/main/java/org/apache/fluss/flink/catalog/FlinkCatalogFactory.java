@@ -18,16 +18,12 @@
 package org.apache.fluss.flink.catalog;
 
 import org.apache.fluss.flink.FlinkConnectorOptions;
-import org.apache.fluss.metadata.DataLakeFormat;
 
 import org.apache.flink.configuration.ConfigOption;
 import org.apache.flink.table.factories.CatalogFactory;
 import org.apache.flink.table.factories.FactoryUtil;
 
-import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -38,15 +34,6 @@ import static org.apache.fluss.utils.PropertiesUtils.extractPrefix;
 public class FlinkCatalogFactory implements CatalogFactory {
 
     public static final String IDENTIFIER = "fluss";
-
-    public static final List<String> PREFIXES_TO_SKIP_VALIDATE = new ArrayList<>();
-
-    static {
-        PREFIXES_TO_SKIP_VALIDATE.add(CLIENT_SECURITY_PREFIX);
-        for (DataLakeFormat value : DataLakeFormat.values()) {
-            PREFIXES_TO_SKIP_VALIDATE.add(value.toString());
-        }
-    }
 
     @Override
     public String factoryIdentifier() {
@@ -67,7 +54,7 @@ public class FlinkCatalogFactory implements CatalogFactory {
     public FlinkCatalog createCatalog(Context context) {
         final FactoryUtil.CatalogFactoryHelper helper =
                 FactoryUtil.createCatalogFactoryHelper(this, context);
-        helper.validateExcept(PREFIXES_TO_SKIP_VALIDATE.toArray(new String[0]));
+        helper.validateExcept(CLIENT_SECURITY_PREFIX);
         Map<String, String> options = context.getOptions();
         Map<String, String> securityConfigs = extractPrefix(options, CLIENT_SECURITY_PREFIX);
 
@@ -76,13 +63,6 @@ public class FlinkCatalogFactory implements CatalogFactory {
                 helper.getOptions().get(FlinkCatalogOptions.DEFAULT_DATABASE),
                 helper.getOptions().get(FlinkConnectorOptions.BOOTSTRAP_SERVERS),
                 context.getClassLoader(),
-                securityConfigs,
-                () -> {
-                    Map<String, String> lakeCatalogProperties = new HashMap<>();
-                    for (DataLakeFormat lakeFormat : DataLakeFormat.values()) {
-                        lakeCatalogProperties.putAll(extractPrefix(options, lakeFormat.toString()));
-                    }
-                    return lakeCatalogProperties;
-                });
+                securityConfigs);
     }
 }

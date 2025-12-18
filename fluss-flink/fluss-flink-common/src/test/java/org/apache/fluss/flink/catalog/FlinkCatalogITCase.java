@@ -115,8 +115,7 @@ abstract class FlinkCatalogITCase {
                         DEFAULT_DB,
                         bootstrapServers,
                         Thread.currentThread().getContextClassLoader(),
-                        Collections.emptyMap(),
-                        Collections::emptyMap);
+                        Collections.emptyMap());
         catalog.open();
     }
 
@@ -770,8 +769,7 @@ abstract class FlinkCatalogITCase {
                             DEFAULT_DB,
                             bootstrapServers,
                             Thread.currentThread().getContextClassLoader(),
-                            Collections.emptyMap(),
-                            Collections::emptyMap);
+                            Collections.emptyMap());
             Catalog finalAuthenticateCatalog = authenticateCatalog;
             assertThatThrownBy(finalAuthenticateCatalog::open)
                     .cause()
@@ -789,8 +787,7 @@ abstract class FlinkCatalogITCase {
                             DEFAULT_DB,
                             bootstrapServers,
                             Thread.currentThread().getContextClassLoader(),
-                            clientConfig,
-                            Collections::emptyMap);
+                            clientConfig);
             authenticateCatalog.open();
             assertThat(authenticateCatalog.listDatabases())
                     .containsExactlyInAnyOrderElementsOf(Collections.singletonList(DEFAULT_DB));
@@ -816,20 +813,6 @@ abstract class FlinkCatalogITCase {
                 .isExactlyInstanceOf(CatalogException.class)
                 .hasMessage(
                         "The configured default-database 'non-exist' does not exist in the Fluss cluster.");
-    }
-
-    @Test
-    void testCreateCatalogWithLakeProperties() {
-        Map<String, String> properties = new HashMap<>();
-        properties.put("paimon.jdbc.password", "pass");
-        tEnv.executeSql(
-                String.format(
-                        "create catalog test_catalog_with_lake_properties with ('type' = 'fluss', '%s' = '%s', 'paimon.jdbc.password' = 'pass')",
-                        BOOTSTRAP_SERVERS.key(), FLUSS_CLUSTER_EXTENSION.getBootstrapServers()));
-        FlinkCatalog catalog =
-                (FlinkCatalog) tEnv.getCatalog("test_catalog_with_lake_properties").get();
-
-        assertOptionsEqual(catalog.getLakeCatalogProperties(), properties);
     }
 
     /**

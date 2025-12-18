@@ -43,7 +43,6 @@ public class FlinkCatalog21Test extends FlinkCatalogTest {
                 bootstrapServers,
                 Thread.currentThread().getContextClassLoader(),
                 Collections.emptyMap(),
-                Collections::emptyMap,
                 lakeFlinkCatalog);
     }
 
