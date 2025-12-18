@@ -29,6 +29,7 @@ import org.apache.fluss.config.Configuration;
 import org.apache.fluss.exception.PartitionNotExistException;
 import org.apache.fluss.flink.lake.LakeSplitReaderGenerator;
 import org.apache.fluss.flink.lake.split.LakeSnapshotAndFlussLogSplit;
+import org.apache.fluss.flink.lake.split.LakeSnapshotSplit;
 import org.apache.fluss.flink.metrics.FlinkMetricRegistry;
 import org.apache.fluss.flink.source.metrics.FlinkSourceReaderMetrics;
 import org.apache.fluss.flink.source.split.HybridSnapshotLogSplit;
@@ -102,7 +103,7 @@ public class FlinkSourceSplitReader implements SplitReader<RecordAndPos, SourceS
     private final Table table;
     private final FlinkMetricRegistry flinkMetricRegistry;
 
-    @Nullable private LakeSource<LakeSplit> lakeSource;
+    @Nullable private final LakeSource<LakeSplit> lakeSource;
 
     // table id, will be null when haven't received any split
     private Long tableId;
@@ -131,7 +132,6 @@ public class FlinkSourceSplitReader implements SplitReader<RecordAndPos, SourceS
         this.boundedSplits = new ArrayDeque<>();
         this.subscribedBuckets = new HashMap<>();
         this.projectedFields = projectedFields;
-        if (projectedFields == null) {}
 
         this.flinkSourceReaderMetrics = flinkSourceReaderMetrics;
         sanityCheck(table.getTableInfo().getRowType(), projectedFields);
@@ -313,9 +313,12 @@ public class FlinkSourceSplitReader implements SplitReader<RecordAndPos, SourceS
     }
 
     public Set<TableBucket> removePartitions(Map<Long, String> removedPartitions) {
-        // First, if the current active bounded split belongs to a removed partition,
-        // finish it so it will not be restored.
-        if (currentBoundedSplit != null) {
+        // First, if the current active bounded split belongs to a removed partition and is not
+        // LakeSnapshotSplit, finish it so it will not be restored.
+        // LakeSnapshotSplit cannot be terminated even if its corresponding partition has expired in
+        // Fluss; otherwise, union reads will fail to correctly read partitions that exist in the
+        // lake but have already expired in Fluss.
+        if (currentBoundedSplit != null && !(currentBoundedSplit instanceof LakeSnapshotSplit)) {
             TableBucket currentBucket = currentBoundedSplit.getTableBucket();
             if (removedPartitions.containsKey(currentBucket.getPartitionId())) {
                 try {
