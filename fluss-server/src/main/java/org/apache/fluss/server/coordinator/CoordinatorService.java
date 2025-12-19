@@ -144,7 +144,7 @@ import static org.apache.fluss.utils.PartitionUtils.validatePartitionSpec;
 import static org.apache.fluss.utils.Preconditions.checkNotNull;
 
 /** An RPC Gateway service for coordinator server. */
-public final class CoordinatorService extends RpcServiceBase implements CoordinatorGateway {
+public final class CoordinatorService extends RpcServiceBase implements CoordinatorGateway
 
     private final int defaultBucketNumber;
     private final int defaultReplicationFactor;
