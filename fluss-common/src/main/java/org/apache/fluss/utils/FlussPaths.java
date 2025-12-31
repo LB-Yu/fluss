@@ -710,14 +710,14 @@ public class FlussPaths {
      * <p>The path contract:
      *
      * <pre>
-     * {$remoteLakeTableSnapshotMetadataDir}/metadata/{UUID}.offsets
+     * {$remoteLakeTableSnapshotMetadataDir}/metadata/{uuid}.manifest
      * </pre>
      */
-    public static FsPath remoteLakeTableSnapshotOffsetPath(
+    public static FsPath remoteLakeTableSnapshotManifestPath(
             String remoteDataDir, TablePath tablePath, long tableId) {
         return new FsPath(
                 String.format(
-                        "%s/metadata/%s.offsets",
+                        "%s/metadata/%s.manifest",
                         remoteLakeTableSnapshotDir(remoteDataDir, tablePath, tableId),
                         UUID.randomUUID()));
     }

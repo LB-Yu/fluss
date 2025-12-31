@@ -21,10 +21,8 @@ package org.apache.fluss.server.zk.data.lake;
 import org.apache.fluss.fs.FSDataInputStream;
 import org.apache.fluss.fs.FileSystem;
 import org.apache.fluss.fs.FsPath;
-import org.apache.fluss.metadata.TableBucket;
 import org.apache.fluss.server.zk.data.ZkData;
 import org.apache.fluss.utils.IOUtils;
-import org.apache.fluss.utils.json.TableBucketOffsets;
 
 import javax.annotation.Nullable;
 
@@ -32,7 +30,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 
 import static org.apache.fluss.metrics.registry.MetricRegistry.LOG;
@@ -107,32 +104,25 @@ public class LakeTable {
         return lakeSnapshotMetadatas;
     }
 
-    @Nullable
-    public LakeTableSnapshot getLakeTableSnapshot() {
-        return lakeTableSnapshot;
-    }
-
     /**
-     * Get or read the latest table snapshot for the lake table.
+     * Get the latest table snapshot for the lake table.
      *
      * <p>If this LakeTable was created from a LakeTableSnapshot (version 1), returns it directly.
      * Otherwise, reads the snapshot data from the lake snapshot file.
      *
      * @return the LakeTableSnapshot
      */
-    public LakeTableSnapshot getOrReadLatestTableSnapshot() throws IOException {
+    public LakeTableSnapshot getLatestTableSnapshot() throws Exception {
         if (lakeTableSnapshot != null) {
             return lakeTableSnapshot;
         }
-        LakeSnapshotMetadata lakeSnapshotMetadata = getLatestLakeSnapshotMetadata();
-        FsPath tieredOffsetsFilePath = checkNotNull(lakeSnapshotMetadata).tieredOffsetsFilePath;
+        FsPath tieredOffsetsFilePath =
+                checkNotNull(getLatestLakeSnapshotMetadata()).tieredOffsetsFilePath;
         FSDataInputStream inputStream =
                 tieredOffsetsFilePath.getFileSystem().open(tieredOffsetsFilePath);
         try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
             IOUtils.copyBytes(inputStream, outputStream, true);
-            Map<TableBucket, Long> logOffsets =
-                    TableBucketOffsets.fromJsonBytes(outputStream.toByteArray()).getOffsets();
-            return new LakeTableSnapshot(lakeSnapshotMetadata.snapshotId, logOffsets);
+            return LakeTableSnapshotJsonSerde.fromJson(outputStream.toByteArray());
         }
     }
 

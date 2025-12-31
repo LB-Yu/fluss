@@ -54,6 +54,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
+import static org.apache.fluss.lake.committer.BucketOffset.FLUSS_LAKE_SNAP_BUCKET_OFFSET_PROPERTY;
 import static org.apache.fluss.testutils.DataTestUtils.row;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -181,7 +182,16 @@ class IcebergTieringITCase extends FlinkIcebergTieringTestBase {
             assertReplicaStatus(t1Bucket, 3);
 
             checkDataInIcebergPrimaryKeyTable(t1, rows);
-            checkFlussOffsetsInSnapshot(t1, Collections.singletonMap(t1Bucket, 3L));
+            // check snapshot property in iceberg
+            Map<String, String> properties =
+                    new HashMap<String, String>() {
+                        {
+                            put(
+                                    FLUSS_LAKE_SNAP_BUCKET_OFFSET_PROPERTY,
+                                    "[{\"bucket\":0,\"offset\":3}]");
+                        }
+                    };
+            checkSnapshotPropertyInIceberg(t1, properties);
 
             // test log table
             testLogTableTiering();
@@ -369,17 +379,14 @@ class IcebergTieringITCase extends FlinkIcebergTieringTestBase {
                         partitionedTablePath, partitionedTableDescriptor, partitionNameByIds);
         long tableId = tableIdAndDescriptor.f0;
 
-        Map<TableBucket, Long> expectedOffsets = new HashMap<>();
         // wait until synced to iceberg
         for (Long partitionId : partitionNameByIds.keySet()) {
             TableBucket tableBucket = new TableBucket(tableId, partitionId, 0);
             assertReplicaStatus(tableBucket, 3);
-            expectedOffsets.put(tableBucket, 3L);
         }
 
         // now, let's check data in iceberg per partition
         // check data in iceberg
-
         String partitionCol = partitionedTableDescriptor.getPartitionKeys().get(0);
         for (String partitionName : partitionNameByIds.values()) {
             checkDataInIcebergAppendOnlyPartitionedTable(
@@ -389,6 +396,18 @@ class IcebergTieringITCase extends FlinkIcebergTieringTestBase {
                     0);
         }
 
-        checkFlussOffsetsInSnapshot(partitionedTablePath, expectedOffsets);
+        Map<String, String> properties =
+                new HashMap<String, String>() {
+                    {
+                        put(
+                                FLUSS_LAKE_SNAP_BUCKET_OFFSET_PROPERTY,
+                                "["
+                                        + "{\"partition_id\":0,\"bucket\":0,\"offset\":3},"
+                                        + "{\"partition_id\":1,\"bucket\":0,\"offset\":3}"
+                                        + "]");
+                    }
+                };
+
+        checkSnapshotPropertyInIceberg(partitionedTablePath, properties);
     }
 }

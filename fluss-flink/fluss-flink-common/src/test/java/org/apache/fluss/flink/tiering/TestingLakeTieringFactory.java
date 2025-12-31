@@ -99,14 +99,16 @@ public class TestingLakeTieringFactory
 
         private long currentSnapshot;
 
-        @Nullable private final CommittedLakeSnapshot mockMissingCommittedLakeSnapshot;
+        @Nullable private final CommittedLakeSnapshot mockCommittedSnapshot;
 
         public TestingLakeCommitter() {
             this(null);
         }
 
-        public TestingLakeCommitter(CommittedLakeSnapshot mockMissingCommittedLakeSnapshot) {
-            this.mockMissingCommittedLakeSnapshot = mockMissingCommittedLakeSnapshot;
+        public TestingLakeCommitter(@Nullable CommittedLakeSnapshot mockCommittedSnapshot) {
+            this.mockCommittedSnapshot = mockCommittedSnapshot;
+            this.currentSnapshot =
+                    mockCommittedSnapshot == null ? 0 : mockCommittedSnapshot.getLakeSnapshotId();
         }
 
         @Override
@@ -133,10 +135,11 @@ public class TestingLakeTieringFactory
         @Override
         public @Nullable CommittedLakeSnapshot getMissingLakeSnapshot(
                 @Nullable Long knownSnapshotId) throws IOException {
-            if (mockMissingCommittedLakeSnapshot != null && knownSnapshotId == null) {
-                return mockMissingCommittedLakeSnapshot;
+            if (knownSnapshotId == null) {
+                return mockCommittedSnapshot;
+            } else {
+                return null;
             }
-            return null;
         }
 
         @Override
