@@ -20,9 +20,10 @@ package org.apache.fluss.lake.paimon;
 import org.apache.fluss.annotation.VisibleForTesting;
 import org.apache.fluss.config.Configuration;
 import org.apache.fluss.exception.InvalidAlterTableException;
-import org.apache.fluss.exception.TableAlreadyExistException;
 import org.apache.fluss.exception.TableNotExistException;
 import org.apache.fluss.lake.lakestorage.LakeCatalog;
+import org.apache.fluss.lake.lakestorage.LakeSnapshotProvider;
+import org.apache.fluss.lake.committer.LakeCommitter;
 import org.apache.fluss.metadata.TableChange;
 import org.apache.fluss.metadata.TableDescriptor;
 import org.apache.fluss.metadata.TablePath;
@@ -55,7 +56,7 @@ import static org.apache.fluss.metadata.TableDescriptor.OFFSET_COLUMN_NAME;
 import static org.apache.fluss.metadata.TableDescriptor.TIMESTAMP_COLUMN_NAME;
 
 /** A Paimon implementation of {@link LakeCatalog}. */
-public class PaimonLakeCatalog implements LakeCatalog {
+public class PaimonLakeCatalog implements LakeCatalog, LakeSnapshotProvider {
 
     private static final Logger LOG = LoggerFactory.getLogger(PaimonLakeCatalog.class);
     public static final LinkedHashMap<String, DataType> SYSTEM_COLUMNS = new LinkedHashMap<>();
@@ -83,7 +84,32 @@ public class PaimonLakeCatalog implements LakeCatalog {
     protected Catalog getPaimonCatalog() {
         return paimonCatalog;
     }
-
++
++    @Override
++    public LakeSnapshotMetadata getLatestSnapshotMetadata(TablePath tablePath)
++            throws TableNotExistException {
++        Identifier identifier = toPaimon(tablePath);
++        try {
++            Table table = paimonCatalog.getTable(identifier);
++            FileStoreTable fileStoreTable = (FileStoreTable) table;
++            org.apache.paimon.Snapshot latest = fileStoreTable.snapshotManager().latestSnapshot();
++            if (latest == null) {
++                return null;
++            }
++
++            java.util.Map<String, String> props =
++                    latest.properties() == null
++                            ? java.util.Collections.emptyMap()
++                            : latest.properties();
++            String flussOffsets =
++                    props.get(LakeCommitter.FLUSS_LAKE_SNAP_BUCKET_OFFSET_PROPERTY);
++
++            return new LakeSnapshotMetadata(latest.id(), latest.timeMillis(), flussOffsets);
++        } catch (Catalog.TableNotExistException e) {
++            throw new TableNotExistException("Table " + tablePath + " does not exist.", e);
++        }
++    }
+ 
     @Override
     public void createTable(TablePath tablePath, TableDescriptor tableDescriptor, Context context)
             throws TableAlreadyExistException {

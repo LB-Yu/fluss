@@ -34,7 +34,9 @@ import org.apache.fluss.exception.TableNotExistException;
 import org.apache.fluss.exception.TableNotPartitionedException;
 import org.apache.fluss.exception.TooManyBucketsException;
 import org.apache.fluss.exception.TooManyPartitionsException;
+import org.apache.fluss.lake.committer.LakeCommitter;
 import org.apache.fluss.lake.lakestorage.LakeCatalog;
+import org.apache.fluss.lake.lakestorage.LakeSnapshotProvider;
 import org.apache.fluss.metadata.DatabaseDescriptor;
 import org.apache.fluss.metadata.DatabaseInfo;
 import org.apache.fluss.metadata.ResolvedPartitionSpec;
@@ -423,6 +425,7 @@ public class MetadataManager {
                 // enable datalake for the table
                 preAlterTableProperties(
                         tablePath,
+                        tableInfo,
                         tableDescriptor,
                         newDescriptor,
                         tableChanges,
@@ -453,6 +456,7 @@ public class MetadataManager {
 
     private void preAlterTableProperties(
             TablePath tablePath,
+            TableInfo tableInfo,
             TableDescriptor tableDescriptor,
             TableDescriptor newDescriptor,
             List<TableChange> tableChanges,
@@ -469,6 +473,21 @@ public class MetadataManager {
             }
 
             // to enable lake table
+            if (!isDataLakeEnabled(tableDescriptor)
+                    && lakeCatalog instanceof LakeSnapshotProvider) {
+                LakeSnapshotProvider snapshotProvider = (LakeSnapshotProvider) lakeCatalog;
+                LakeSnapshotProvider.LakeSnapshotMetadata lakeSnapshotMetadata =
+                        snapshotProvider.getLatestSnapshotMetadata(tablePath);
+
+                // case1: 检查 fluss-offsets 中记录的 tableId 与当前 Fluss 表一致
+                validateFlussOffsetsConsistencyOnEnable(
+                        tablePath, tableInfo.getTableId(), lakeSnapshotMetadata);
+
+                // case2: 基于 TTL 的快照时间窗口检查
+                validateTtlWindowOnEnable(tablePath, newDescriptor, lakeSnapshotMetadata);
+            }
+
+            // to enable lake table
             if (!isDataLakeEnabled(tableDescriptor)) {
                 // before create table in fluss, we may create in lake
                 try {
@@ -478,6 +497,163 @@ public class MetadataManager {
                 }
             }
         }
+
+        // We should always alter lake table even though datalake is disabled.
+        // Otherwise, if user alter the fluss table when datalake is disabled, then enable datalake
+        // again, the lake table will mismatch.
+        if (lakeCatalog != null) {
+            try {
+                lakeCatalog.alterTable(tablePath, tableChanges, lakeCatalogContext);
+            } catch (TableNotExistException e) {
+                // only throw TableNotExistException if datalake is enabled
+                if (isDataLakeEnabled(newDescriptor)) {
+                    throw new FlussRuntimeException(
+                            "Lake table doesn't exist for lake-enabled table "
+                                    + tablePath
+                                    + ", which shouldn't be happened. Please check if the lake table was deleted manually.",
+                            e);
+                }
+            }
+        }
+    }
+
+    private void validateFlussOffsetsConsistencyOnEnable(
+            TablePath tablePath,
+            long flussTableId,
+            @Nullable LakeSnapshotProvider.LakeSnapshotMetadata lakeSnapshotMetadata) {
+
+        if (lakeSnapshotMetadata == null) {
+            // 没有任何快照：
+            // - 对于首次启用 datalake 的表（Paimon 表刚被创建），这是正常情况；
+            // - 对于用户在关闭 datalake 期间手动写入 Paimon 但未产生快照的极端情况，影响有限。
+            // 这里选择放行，并交由 TTL 校验进一步兜底。
+            return;
+        }
+
+        String flussOffsets = lakeSnapshotMetadata.getFlussOffsetsProperty();
+        if (flussOffsets == null || flussOffsets.trim().isEmpty()) {
+            // 最新快照没有携带 fluss-offsets 属性：
+            // 高概率说明该快照并非由 Fluss tiering 产生，直接拒绝 enable。
+            throw new InvalidAlterTableException(
+                    String.format(
+                            "Cannot enable datalake for table %s because the latest lake snapshot %d "
+                                    + "does not contain '%s' property. This usually indicates the lake table "
+                                    + "was rewritten directly without Fluss tiering.",
+                            tablePath,
+                            lakeSnapshotMetadata.getSnapshotId(),
+                            LakeCommitter.FLUSS_LAKE_SNAP_BUCKET_OFFSET_PROPERTY));
+        }
+
+        long tableIdFromOffsets = extractTableIdFromFlussOffsets(flussOffsets);
+        if (tableIdFromOffsets != flussTableId) {
+            // 快照中的 tableId 与当前 Fluss 表的 tableId 不一致，说明 Paimon 表属于另一张 Fluss 表
+            throw new InvalidAlterTableException(
+                    String.format(
+                            "Cannot enable datalake for table %s because the latest lake snapshot %d "
+                                    + "belongs to another Fluss table (tableId from offsets = %d, current tableId = %d).",
+                            tablePath,
+                            lakeSnapshotMetadata.getSnapshotId(),
+                            tableIdFromOffsets,
+                            flussTableId));
+        }
+    }
+
+    private long extractTableIdFromFlussOffsets(String flussOffsets) {
+        String trimmed = flussOffsets.trim();
+
+        // v1：值为 JSON（完整 bucket offsets），通过 TableBucketOffsets 反序列化解析 tableId
+        if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+            try {
+                TableBucketOffsets tableBucketOffsets =
+                        TableBucketOffsets.fromJsonBytes(trimmed.getBytes(StandardCharsets.UTF_8));
+                return tableBucketOffsets.getTableId();
+            } catch (Exception e) {
+                throw new InvalidAlterTableException(
+                        String.format(
+                                "Failed to parse fluss-offsets JSON for lake snapshot, value=%s.",
+                                flussOffsets),
+                        e);
+            }
+        }
+
+        // v2：值为 offsets 文件路径
+        // 形如：{$remote.data.dir}/lake/{db}/{tableName}-{tableId}/metadata/{UUID}.offsets
+        String path = trimmed;
+        int metadataIndex = path.lastIndexOf("/metadata/");
+        if (metadataIndex <= 0) {
+            throw new InvalidAlterTableException(
+                    String.format(
+                            "Unexpected fluss-offsets path format: %s. Expected to contain '/metadata/'.",
+                            flussOffsets));
+        }
+
+        String tableDir = path.substring(0, metadataIndex); // .../{tableName}-{tableId}
+        int lastSlash = tableDir.lastIndexOf('/');
+        if (lastSlash < 0 || lastSlash == tableDir.length() - 1) {
+            throw new InvalidAlterTableException(
+                    String.format(
+                            "Unexpected fluss-offsets path format: %s. Cannot extract table directory.",
+                            flussOffsets));
+        }
+
+        String nameWithId = tableDir.substring(lastSlash + 1); // {tableName}-{tableId}
+        int dashIndex = nameWithId.lastIndexOf('-');
+        if (dashIndex < 0 || dashIndex == nameWithId.length() - 1) {
+            throw new InvalidAlterTableException(
+                    String.format(
+                            "Unexpected fluss-offsets path format: %s. Cannot extract tableId.",
+                            flussOffsets));
+        }
+
+        String tableIdStr = nameWithId.substring(dashIndex + 1);
+        try {
+            return Long.parseLong(tableIdStr);
+        } catch (NumberFormatException e) {
+            throw new InvalidAlterTableException(
+                    String.format(
+                            "Unexpected fluss-offsets path format: %s. tableId '%s' is not a valid long.",
+                            flussOffsets,
+                            tableIdStr),
+                    e);
+        }
+    }
+
+    private void validateTtlWindowOnEnable(
+            TablePath tablePath,
+            TableDescriptor newDescriptor,
+            @Nullable LakeSnapshotProvider.LakeSnapshotMetadata lakeSnapshotMetadata) {
+
+        if (lakeSnapshotMetadata == null) {
+            // 没有快照时无法基于快照时间做 TTL 校验，直接放行
+            return;
+        }
+
+        Configuration tableConf = Configuration.fromMap(newDescriptor.getProperties());
+        Duration ttl = tableConf.get(ConfigOptions.TABLE_LOG_TTL);
+
+        // TTL 小于等于 0（例如 -1 表示不清理）时不做该校验
+        if (ttl.isZero() || ttl.isNegative()) {
+            return;
+        }
+
+        long ttlMillis = ttl.toMillis();
+        long now = System.currentTimeMillis();
+        long snapshotTime = lakeSnapshotMetadata.getCommitTimeMillis();
+
+        if (now - snapshotTime > ttlMillis) {
+            // 最新快照距离现在已经超过 TTL，大概率意味着从上次快照到现在的一部分日志已经被删除，
+            // 后续 tiering 很大概率会失败，因此直接拒绝 enable。
+            throw new InvalidAlterTableException(
+                    String.format(
+                            "Cannot enable datalake for table %s because the latest lake snapshot %d "
+                                    + "(commitTime=%d) is older than table.log.ttl (%s). "
+                                    + "Enabling datalake in this state will likely cause tiering failures.",
+                            tablePath,
+                            lakeSnapshotMetadata.getSnapshotId(),
+                            snapshotTime,
+                            ttl));
+        }
+    }
 
         // We should always alter lake table even though datalake is disabled.
         // Otherwise, if user alter the fluss table when datalake is disabled, then enable datalake
