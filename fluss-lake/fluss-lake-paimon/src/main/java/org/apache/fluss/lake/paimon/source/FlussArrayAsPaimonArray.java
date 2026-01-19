@@ -21,6 +21,7 @@ import org.apache.fluss.row.TimestampLtz;
 import org.apache.fluss.row.TimestampNtz;
 
 import org.apache.paimon.data.BinaryString;
+import org.apache.paimon.data.Blob;
 import org.apache.paimon.data.Decimal;
 import org.apache.paimon.data.InternalArray;
 import org.apache.paimon.data.InternalMap;
@@ -145,6 +146,12 @@ public class FlussArrayAsPaimonArray implements InternalArray {
 
     @Override
     public Variant getVariant(int pos) {
+        throw new UnsupportedOperationException(
+                "getVariant is not supported for Fluss array currently.");
+    }
+
+    @Override
+    public Blob getBlob(int i) {
         throw new UnsupportedOperationException(
                 "getVariant is not supported for Fluss array currently.");
     }
