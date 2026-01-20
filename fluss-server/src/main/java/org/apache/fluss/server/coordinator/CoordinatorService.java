@@ -126,6 +126,7 @@ import org.apache.fluss.server.coordinator.event.ListRebalanceProgressEvent;
 import org.apache.fluss.server.coordinator.event.RebalanceEvent;
 import org.apache.fluss.server.coordinator.event.RemoveServerTagEvent;
 import org.apache.fluss.server.coordinator.rebalance.goal.Goal;
+import org.apache.fluss.server.coordinator.remote.RemoteDirDynamicLoader;
 import org.apache.fluss.server.entity.CommitKvSnapshotData;
 import org.apache.fluss.server.entity.LakeTieringTableInfo;
 import org.apache.fluss.server.entity.TablePropertyChanges;
@@ -191,6 +192,7 @@ public final class CoordinatorService extends RpcServiceBase implements Coordina
     private final LakeCatalogDynamicLoader lakeCatalogDynamicLoader;
     private final ExecutorService ioExecutor;
     private final LakeTableHelper lakeTableHelper;
+    private final RemoteDirDynamicLoader remoteDirDynamicLoader;
 
     public CoordinatorService(
             Configuration conf,
@@ -202,6 +204,7 @@ public final class CoordinatorService extends RpcServiceBase implements Coordina
             @Nullable Authorizer authorizer,
             LakeCatalogDynamicLoader lakeCatalogDynamicLoader,
             LakeTableTieringManager lakeTableTieringManager,
+            RemoteDirDynamicLoader remoteDirDynamicLoader,
             DynamicConfigManager dynamicConfigManager,
             ExecutorService ioExecutor) {
         super(
@@ -224,8 +227,8 @@ public final class CoordinatorService extends RpcServiceBase implements Coordina
         this.metadataCache = metadataCache;
         this.lakeCatalogDynamicLoader = lakeCatalogDynamicLoader;
         this.ioExecutor = ioExecutor;
-        this.lakeTableHelper =
-                new LakeTableHelper(zkClient, conf.getString(ConfigOptions.REMOTE_DATA_DIR));
+        this.lakeTableHelper = new LakeTableHelper(zkClient);
+        this.remoteDirDynamicLoader = remoteDirDynamicLoader;
     }
 
     @Override
@@ -353,9 +356,20 @@ public final class CoordinatorService extends RpcServiceBase implements Coordina
             }
         }
 
+        // select remote data dir for table.
+        // remote data dir will be used to store table data for non-partitioned table and metadata
+        // (such as lake snapshot offset file) for partitioned table
+        RemoteDirDynamicLoader.RemoteDirContainer remoteDataDirContainer =
+                remoteDirDynamicLoader.getRemoteDataDirContainer();
+        FsPath remoteDataDir = remoteDataDirContainer.nextDataDir();
+
         // then create table;
         metadataManager.createTable(
-                tablePath, tableDescriptor, tableAssignment, request.isIgnoreIfExists());
+                tablePath,
+                remoteDataDir,
+                tableDescriptor,
+                tableAssignment,
+                request.isIgnoreIfExists());
 
         return CompletableFuture.completedFuture(new CreateTableResponse());
     }
@@ -544,9 +558,15 @@ public final class CoordinatorService extends RpcServiceBase implements Coordina
         PartitionAssignment partitionAssignment =
                 new PartitionAssignment(table.tableId, bucketAssignments);
 
+        // select remote data dir for partition
+        RemoteDirDynamicLoader.RemoteDirContainer remoteDataDirContainer =
+                remoteDirDynamicLoader.getRemoteDataDirContainer();
+        FsPath remoteDataDir = remoteDataDirContainer.nextDataDir();
+
         metadataManager.createPartition(
                 tablePath,
                 table.tableId,
+                remoteDataDir,
                 partitionAssignment,
                 partitionToCreate,
                 request.isIgnoreIfNotExists());
@@ -595,6 +615,7 @@ public final class CoordinatorService extends RpcServiceBase implements Coordina
         return metadataResponseAccessContextEvent.getResultFuture();
     }
 
+    @Override
     public CompletableFuture<AdjustIsrResponse> adjustIsr(AdjustIsrRequest request) {
         CompletableFuture<AdjustIsrResponse> response = new CompletableFuture<>();
         eventManagerSupplier
@@ -678,9 +699,20 @@ public final class CoordinatorService extends RpcServiceBase implements Coordina
                                                     optPreviousLakeTable.get(), tableBucketOffsets);
                                 }
                                 TablePath tablePath = toTablePath(bucketOffsets.getTablePath());
+                                // get table remote data dir
+                                Optional<TableRegistration> tableRegistration =
+                                        zkClient.getTable(tablePath);
+                                String remoteDataDir =
+                                        tableRegistration
+                                                .map(registration -> registration.remoteDataDir)
+                                                .map(FsPath::getPath)
+                                                .orElse(
+                                                        remoteDirDynamicLoader
+                                                                .getRemoteDataDirContainer()
+                                                                .getDefaultRemoteDataDir());
                                 FsPath fsPath =
                                         lakeTableHelper.storeLakeTableOffsetsFile(
-                                                tablePath, tableBucketOffsets);
+                                                remoteDataDir, tablePath, tableBucketOffsets);
                                 pbPrepareLakeTableRespForTable.setTableId(tableId);
                                 pbPrepareLakeTableRespForTable.setLakeTableOffsetsPath(
                                         fsPath.toString());
