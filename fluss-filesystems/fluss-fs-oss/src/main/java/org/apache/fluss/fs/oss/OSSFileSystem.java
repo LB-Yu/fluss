@@ -39,10 +39,12 @@ class OSSFileSystem extends HadoopFileSystem {
     private final Configuration conf;
     private volatile OSSSecurityTokenProvider ossSecurityTokenProvider;
     private final String scheme;
+    private final String authority;
 
-    OSSFileSystem(FileSystem hadoopFileSystem, String scheme, Configuration conf) {
+    OSSFileSystem(FileSystem hadoopFileSystem, String scheme, String authority, Configuration conf) {
         super(hadoopFileSystem);
         this.scheme = scheme;
+        this.authority = authority;
         this.conf = conf;
     }
 
@@ -50,7 +52,7 @@ class OSSFileSystem extends HadoopFileSystem {
     public ObtainedSecurityToken obtainSecurityToken() throws IOException {
         try {
             mayCreateSecurityTokenProvider();
-            return ossSecurityTokenProvider.obtainSecurityToken(scheme);
+            return ossSecurityTokenProvider.obtainSecurityToken(scheme, authority);
         } catch (Exception e) {
             throw new IOException(e);
         }

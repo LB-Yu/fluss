@@ -99,7 +99,7 @@ public class OSSFileSystemPlugin implements FileSystemPlugin {
         }
 
         org.apache.hadoop.fs.FileSystem fileSystem = initFileSystem(fsUri, hadoopConfig);
-        return new OSSFileSystem(fileSystem, getScheme(), hadoopConfig);
+        return new OSSFileSystem(fileSystem, getScheme(), fsUri.getAuthority(), hadoopConfig);
     }
 
     protected org.apache.hadoop.fs.FileSystem initFileSystem(

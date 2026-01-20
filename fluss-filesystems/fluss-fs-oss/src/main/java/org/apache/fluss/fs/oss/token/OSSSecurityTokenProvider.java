@@ -32,6 +32,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.aliyun.oss.AliyunOSSUtils;
 
 import java.io.IOException;
+import java.net.URI;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
@@ -66,7 +67,7 @@ public class OSSSecurityTokenProvider {
         roleArn = conf.get(ROLE_ARN_KEY);
     }
 
-    public ObtainedSecurityToken obtainSecurityToken(String scheme) throws Exception {
+    public ObtainedSecurityToken obtainSecurityToken(String scheme, String authority) throws Exception {
         final AssumeRoleRequest request = new AssumeRoleRequest();
         request.setSysMethod(MethodType.POST);
         request.setRoleArn(roleArn);
@@ -91,6 +92,7 @@ public class OSSSecurityTokenProvider {
 
         return new ObtainedSecurityToken(
                 scheme,
+                authority,
                 toJson(defaultCredentials),
                 Instant.parse(credentials.getExpiration()).toEpochMilli(),
                 additionInfo);
