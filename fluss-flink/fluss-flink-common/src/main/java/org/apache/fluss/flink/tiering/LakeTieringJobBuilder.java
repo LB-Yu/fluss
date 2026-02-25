@@ -100,6 +100,7 @@ public class LakeTieringJobBuilder {
                                 () -> lakeTieringFactory.getWriteResultSerializer()));
 
         source.getTransformation().setUid(TIERING_SOURCE_TRANSFORMATION_UID);
+        source.disableChaining();
 
         source.transform(
                         "TieringCommitter",
