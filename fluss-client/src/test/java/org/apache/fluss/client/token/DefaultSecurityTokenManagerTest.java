@@ -20,6 +20,7 @@ package org.apache.fluss.client.token;
 import org.apache.fluss.config.ConfigOptions;
 import org.apache.fluss.config.Configuration;
 
+import org.apache.fluss.metadata.PhysicalTablePath;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
@@ -46,8 +47,9 @@ class DefaultSecurityTokenManagerTest {
         DefaultSecurityTokenManager securityTokenManager =
                 new DefaultSecurityTokenManager(configuration, testingSecurityTokenProvider);
 
+        PhysicalTablePath tablePath = PhysicalTablePath.of("test_db", "test_table", null);
         // start token update
-        securityTokenManager.startTokensUpdate();
+        securityTokenManager.startTokensUpdate(tablePath);
 
         // token history should be token1
         retry(

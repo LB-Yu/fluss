@@ -383,6 +383,7 @@ message GetLatestLakeSnapshotResponse {
 }
 
 message GetFileSystemSecurityTokenRequest {
+  optional PbPhysicalTablePath table_path = 1;
 }
 
 message GetFileSystemSecurityTokenResponse {
@@ -390,6 +391,8 @@ message GetFileSystemSecurityTokenResponse {
   required bytes token = 2;
   optional int64 expiration_time = 3;
   repeated PbKeyValue addition_info = 4;
+  // optional for backward compatibility
+  optional string authority = 5;
 }
 
 // init writer request and response

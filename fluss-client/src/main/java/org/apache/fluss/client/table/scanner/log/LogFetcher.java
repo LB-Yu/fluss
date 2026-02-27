@@ -23,10 +23,12 @@ import org.apache.fluss.client.metadata.MetadataUpdater;
 import org.apache.fluss.client.metrics.ScannerMetricGroup;
 import org.apache.fluss.client.table.scanner.RemoteFileDownloader;
 import org.apache.fluss.client.table.scanner.ScanRecord;
+import org.apache.fluss.client.token.SecurityTokenManager;
 import org.apache.fluss.cluster.BucketLocation;
 import org.apache.fluss.config.ConfigOptions;
 import org.apache.fluss.config.Configuration;
 import org.apache.fluss.exception.ApiException;
+import org.apache.fluss.exception.FlussRuntimeException;
 import org.apache.fluss.exception.InvalidMetadataException;
 import org.apache.fluss.exception.LeaderNotAvailableException;
 import org.apache.fluss.exception.PartitionNotExistException;
@@ -102,6 +104,7 @@ public class LogFetcher implements Closeable {
     private final LogFetchBuffer logFetchBuffer;
     private final LogFetchCollector logFetchCollector;
     private final RemoteLogDownloader remoteLogDownloader;
+    private final SecurityTokenManager securityTokenManager;
 
     @GuardedBy("this")
     private final Set<Integer> nodesWithPendingFetchRequests;
@@ -120,6 +123,7 @@ public class LogFetcher implements Closeable {
             MetadataUpdater metadataUpdater,
             ScannerMetricGroup scannerMetricGroup,
             RemoteFileDownloader remoteFileDownloader,
+            SecurityTokenManager securityTokenManager,
             SchemaGetter schemaGetter) {
         this.tablePath = tableInfo.getTablePath();
         this.isPartitioned = tableInfo.isPartitioned();
@@ -150,6 +154,7 @@ public class LogFetcher implements Closeable {
         this.remoteLogDownloader =
                 new RemoteLogDownloader(tablePath, conf, remoteFileDownloader, scannerMetricGroup);
         remoteLogDownloader.start();
+        this.securityTokenManager = securityTokenManager;
     }
 
     /**
@@ -437,6 +442,16 @@ public class LogFetcher implements Closeable {
     private void pendRemoteFetches(
             RemoteLogFetchInfo remoteLogFetchInfo, long firstFetchOffset, long highWatermark) {
         checkNotNull(remoteLogFetchInfo);
+
+        PhysicalTablePath physicalTablePath =
+                PhysicalTablePath.of(tablePath, remoteLogFetchInfo.partitionName());
+        try {
+            securityTokenManager.start(physicalTablePath);
+        } catch (Exception e) {
+            throw new FlussRuntimeException(
+                    "start security token manager failed for table " + physicalTablePath, e);
+        }
+
         FsPath remoteLogTabletDir = new FsPath(remoteLogFetchInfo.remoteLogTabletDir());
         List<RemoteLogSegment> remoteLogSegments = remoteLogFetchInfo.remoteLogSegmentList();
         int posInLogSegment = remoteLogFetchInfo.firstStartPos();

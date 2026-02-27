@@ -17,11 +17,14 @@
 
 package org.apache.fluss.client.token;
 
+import org.apache.fluss.metadata.PhysicalTablePath;
+
 /** API for security token manager. */
 public interface SecurityTokenManager {
 
-    /** Creates a re-occurring task which obtains new tokens. */
-    void start() throws Exception;
+    boolean isStarted(PhysicalTablePath tablePath);
+
+    void start(PhysicalTablePath tablePath) throws Exception;
 
     /** Stops re-occurring token obtain task. */
     void stop();

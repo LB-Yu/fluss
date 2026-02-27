@@ -66,7 +66,8 @@ public class OSSSecurityTokenProvider {
         roleArn = conf.get(ROLE_ARN_KEY);
     }
 
-    public ObtainedSecurityToken obtainSecurityToken(String scheme) throws Exception {
+    public ObtainedSecurityToken obtainSecurityToken(String scheme, String authority)
+            throws Exception {
         final AssumeRoleRequest request = new AssumeRoleRequest();
         request.setSysMethod(MethodType.POST);
         request.setRoleArn(roleArn);
@@ -91,6 +92,7 @@ public class OSSSecurityTokenProvider {
 
         return new ObtainedSecurityToken(
                 scheme,
+                authority,
                 toJson(defaultCredentials),
                 Instant.parse(credentials.getExpiration()).toEpochMilli(),
                 additionInfo);

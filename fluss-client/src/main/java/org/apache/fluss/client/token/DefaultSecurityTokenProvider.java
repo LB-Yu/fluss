@@ -19,6 +19,7 @@ package org.apache.fluss.client.token;
 
 import org.apache.fluss.client.utils.ClientRpcMessageUtils;
 import org.apache.fluss.fs.token.ObtainedSecurityToken;
+import org.apache.fluss.metadata.PhysicalTablePath;
 import org.apache.fluss.rpc.gateway.AdminReadOnlyGateway;
 import org.apache.fluss.rpc.messages.GetFileSystemSecurityTokenRequest;
 
@@ -32,9 +33,20 @@ public class DefaultSecurityTokenProvider implements SecurityTokenProvider {
     }
 
     @Override
-    public ObtainedSecurityToken obtainSecurityToken() throws Exception {
+    public ObtainedSecurityToken obtainSecurityToken(PhysicalTablePath tablePath) throws Exception {
+        GetFileSystemSecurityTokenRequest request = new GetFileSystemSecurityTokenRequest();
+        if (tablePath.getPartitionName() != null) {
+            request.setTablePath()
+                    .setDatabaseName(tablePath.getDatabaseName())
+                    .setTableName(tablePath.getTableName())
+                    .setPartitionName(tablePath.getPartitionName());
+        } else {
+            request.setTablePath()
+                    .setDatabaseName(tablePath.getDatabaseName())
+                    .setTableName(tablePath.getTableName());
+        }
         return adminReadOnlyGateway
-                .getFileSystemSecurityToken(new GetFileSystemSecurityTokenRequest())
+                .getFileSystemSecurityToken(request)
                 .thenApply(ClientRpcMessageUtils::toSecurityToken)
                 .get();
     }

@@ -22,6 +22,7 @@ import org.apache.fluss.client.metadata.MetadataUpdater;
 import org.apache.fluss.client.metrics.ScannerMetricGroup;
 import org.apache.fluss.client.table.scanner.RemoteFileDownloader;
 import org.apache.fluss.client.table.scanner.ScanRecord;
+import org.apache.fluss.client.token.SecurityTokenManager;
 import org.apache.fluss.config.Configuration;
 import org.apache.fluss.exception.WakeupException;
 import org.apache.fluss.metadata.SchemaGetter;
@@ -83,6 +84,7 @@ public class LogScannerImpl implements LogScanner {
             MetadataUpdater metadataUpdater,
             ClientMetricGroup clientMetricGroup,
             RemoteFileDownloader remoteFileDownloader,
+            SecurityTokenManager securityTokenManager,
             @Nullable int[] projectedFields,
             SchemaGetter schemaGetter) {
         this.tablePath = tableInfo.getTablePath();
@@ -103,6 +105,7 @@ public class LogScannerImpl implements LogScanner {
                         metadataUpdater,
                         scannerMetricGroup,
                         remoteFileDownloader,
+                        securityTokenManager,
                         schemaGetter);
     }
 

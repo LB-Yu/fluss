@@ -181,15 +181,14 @@ public final class FlussConnection implements Connection {
                             new DefaultSecurityTokenProvider(gateway);
                     securityTokenManager =
                             new DefaultSecurityTokenManager(conf, securityTokenProvider);
-                    try {
-                        securityTokenManager.start();
-                    } catch (Exception e) {
-                        throw new FlussRuntimeException("start security token manager failed", e);
-                    }
                 }
             }
         }
         return remoteFileDownloader;
+    }
+
+    public SecurityTokenManager getSecurityTokenManager() {
+        return securityTokenManager;
     }
 
     @Override

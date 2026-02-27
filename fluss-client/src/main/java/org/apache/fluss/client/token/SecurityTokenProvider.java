@@ -18,14 +18,15 @@
 package org.apache.fluss.client.token;
 
 import org.apache.fluss.fs.token.ObtainedSecurityToken;
+import org.apache.fluss.metadata.PhysicalTablePath;
 
 /** Security token provider API. */
 public interface SecurityTokenProvider {
 
     /**
-     * Obtain security token.
+     * Obtain security token for the given table path.
      *
      * @return the obtained security token.
      */
-    ObtainedSecurityToken obtainSecurityToken() throws Exception;
+    ObtainedSecurityToken obtainSecurityToken(PhysicalTablePath tablePath) throws Exception;
 }

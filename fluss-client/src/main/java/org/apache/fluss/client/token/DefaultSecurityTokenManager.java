@@ -21,16 +21,18 @@ import org.apache.fluss.annotation.VisibleForTesting;
 import org.apache.fluss.config.Configuration;
 import org.apache.fluss.exception.FlussRuntimeException;
 import org.apache.fluss.fs.token.ObtainedSecurityToken;
+import org.apache.fluss.metadata.PhysicalTablePath;
 import org.apache.fluss.utils.ExceptionUtils;
 import org.apache.fluss.utils.concurrent.ExecutorThreadFactory;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.annotation.Nullable;
 import javax.annotation.concurrent.GuardedBy;
 
 import java.time.Clock;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -41,7 +43,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.apache.fluss.config.ConfigOptions.FILESYSTEM_SECURITY_TOKEN_RENEWAL_RETRY_BACKOFF;
 import static org.apache.fluss.config.ConfigOptions.FILESYSTEM_SECURITY_TOKEN_RENEWAL_TIME_RATIO;
 import static org.apache.fluss.utils.Preconditions.checkNotNull;
-import static org.apache.fluss.utils.Preconditions.checkState;
 
 /* This file is based on source code of Apache Flink Project (https://flink.apache.org/), licensed by the Apache
  * Software Foundation (ASF) under the Apache License, Version 2.0. See the NOTICE file distributed with this work for
@@ -65,8 +66,7 @@ public class DefaultSecurityTokenManager implements SecurityTokenManager {
     private final Object tokensUpdateFutureLock = new Object();
 
     @GuardedBy("tokensUpdateFutureLock")
-    @Nullable
-    private ScheduledFuture<?> tokensUpdateFuture;
+    private final Map<PhysicalTablePath, ScheduledFuture<?>> tokensUpdateFutures = new HashMap<>();
 
     public DefaultSecurityTokenManager(
             Configuration configuration, SecurityTokenProvider securityTokenProvider) {
@@ -84,78 +84,92 @@ public class DefaultSecurityTokenManager implements SecurityTokenManager {
     }
 
     @Override
-    public void start() throws Exception {
+    public boolean isStarted(PhysicalTablePath tablePath) {
         synchronized (tokensUpdateFutureLock) {
-            checkState(tokensUpdateFuture == null, "Manager is already started");
+            return tokensUpdateFutures.get(tablePath) != null;
         }
-
-        startTokensUpdate();
     }
 
-    void startTokensUpdate() {
+    @Override
+    public void start(PhysicalTablePath tablePath) throws Exception {
+        synchronized (tokensUpdateFutureLock) {
+            if (tokensUpdateFutures.get(tablePath) != null) {
+                return;
+            }
+
+            startTokensUpdate(tablePath);
+        }
+    }
+
+    void startTokensUpdate(PhysicalTablePath tablePath) {
         try {
-            LOG.info("Starting tokens update task");
+            LOG.info("Starting tokens update task for table {}", tablePath);
             AtomicReference<ObtainedSecurityToken> tokenContainer = new AtomicReference<>();
-            Optional<Long> nextRenewal = obtainSecurityTokensAndGetNextRenewal(tokenContainer);
+            Optional<Long> nextRenewal =
+                    obtainSecurityTokensAndGetNextRenewal(tablePath, tokenContainer);
 
             if (tokenContainer.get() != null) {
                 securityTokenReceiverRepository.onNewTokensObtained(tokenContainer.get());
             } else {
-                LOG.warn("No tokens obtained so skipping notifications");
+                LOG.warn("No tokens obtained for table {} so skipping notifications", tablePath);
             }
 
             if (nextRenewal.isPresent()) {
                 long renewalDelay =
                         calculateRenewalDelay(Clock.systemDefaultZone(), nextRenewal.get());
                 synchronized (tokensUpdateFutureLock) {
-                    tokensUpdateFuture =
+                    ScheduledFuture<?> tokensUpdateFuture =
                             scheduledExecutor.schedule(
-                                    this::startTokensUpdate, renewalDelay, TimeUnit.MILLISECONDS);
+                                    () -> startTokensUpdate(tablePath),
+                                    renewalDelay,
+                                    TimeUnit.MILLISECONDS);
+                    tokensUpdateFutures.put(tablePath, tokensUpdateFuture);
                 }
-                LOG.info("Tokens update task started with {} ms delay", renewalDelay);
+                LOG.info(
+                        "Tokens update task for table {} started with {} ms delay",
+                        tablePath,
+                        renewalDelay);
             } else {
                 LOG.warn(
-                        "Tokens update task not started because either no tokens obtained or none of the tokens specified its renewal date");
+                        "Tokens update task for table {} not started because either no tokens obtained or none of the tokens specified its renewal date",
+                        tablePath);
             }
         } catch (Exception e) {
             synchronized (tokensUpdateFutureLock) {
-                tokensUpdateFuture =
+                ScheduledFuture<?> tokensUpdateFuture =
                         scheduledExecutor.schedule(
-                                this::startTokensUpdate,
+                                () -> startTokensUpdate(tablePath),
                                 renewalRetryBackoffPeriod,
                                 TimeUnit.MILLISECONDS);
+                tokensUpdateFutures.put(tablePath, tokensUpdateFuture);
             }
             LOG.warn(
-                    "Failed to update tokens, will try again in {} ms",
+                    "Failed to update tokens for table {}, will try again in {} ms",
+                    tablePath,
                     renewalRetryBackoffPeriod,
                     e);
         }
     }
 
     protected Optional<Long> obtainSecurityTokensAndGetNextRenewal(
-            AtomicReference<ObtainedSecurityToken> tokenContainer) {
+            PhysicalTablePath tablePath, AtomicReference<ObtainedSecurityToken> tokenContainer) {
         try {
-            LOG.debug("Obtaining security token.");
-            ObtainedSecurityToken token = securityTokenProvider.obtainSecurityToken();
+            LOG.debug("Obtaining security token for table {}.", tablePath);
+            ObtainedSecurityToken token = securityTokenProvider.obtainSecurityToken(tablePath);
             tokenContainer.set(token);
             checkNotNull(token, "Obtained security tokens must not be null");
-            LOG.debug("Obtained security token successfully");
+            LOG.debug("Obtained security token for table {} successfully", tablePath);
             return token.getValidUntil();
         } catch (Exception e) {
             Throwable t = ExceptionUtils.stripExecutionException(e);
-            LOG.error("Failed to obtain security token.", t);
+            LOG.error("Failed to obtain security token for table {}.", tablePath, t);
             throw new FlussRuntimeException(t);
         }
     }
 
     @VisibleForTesting
     void stopTokensUpdate() {
-        synchronized (tokensUpdateFutureLock) {
-            if (tokensUpdateFuture != null) {
-                tokensUpdateFuture.cancel(true);
-                tokensUpdateFuture = null;
-            }
-        }
+
     }
 
     @VisibleForTesting

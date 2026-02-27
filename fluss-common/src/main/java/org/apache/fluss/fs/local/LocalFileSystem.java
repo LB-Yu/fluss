@@ -53,7 +53,7 @@ import static org.apache.fluss.utils.Preconditions.checkState;
 public class LocalFileSystem extends FileSystem {
 
     private static final ObtainedSecurityToken TOKEN =
-            new ObtainedSecurityToken("file", new byte[0], null, Collections.emptyMap());
+            new ObtainedSecurityToken("file", null, new byte[0], null, Collections.emptyMap());
 
     /** The URI representing the local file system. */
     private static final URI LOCAL_URI =

@@ -81,6 +81,7 @@ public class LogFetcherTest {
                         metadataUpdater,
                         TestingScannerMetricGroup.newInstance(),
                         new RemoteFileDownloader(1),
+                        null,
                         clientSchemaGetter);
     }
 

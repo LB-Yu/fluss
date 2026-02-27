@@ -31,6 +31,9 @@ public final class ObtainedSecurityToken {
     /** The scheme of filesystem the token is for. */
     private final String scheme;
 
+    /** The authority of the file system the token is for. */
+    @Nullable private final String authority;
+
     /** Additional information for accessing filesystem. */
     private final Map<String, String> additionInfos;
 
@@ -39,10 +42,12 @@ public final class ObtainedSecurityToken {
 
     public ObtainedSecurityToken(
             String scheme,
+            @Nullable String authority,
             byte[] token,
             @Nullable Long validUntil,
             Map<String, String> additionInfos) {
         this.scheme = scheme;
+        this.authority = authority;
         this.token = token;
         this.validUntil = validUntil;
         this.additionInfos = additionInfos;
@@ -50,6 +55,11 @@ public final class ObtainedSecurityToken {
 
     public String getScheme() {
         return scheme;
+    }
+
+    @Nullable
+    public String getAuthority() {
+        return authority;
     }
 
     public byte[] getToken() {

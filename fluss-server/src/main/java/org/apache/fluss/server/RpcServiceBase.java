@@ -413,6 +413,9 @@ public abstract class RpcServiceBase extends RpcGatewayService implements AdminR
                 tokenLastUpdateTimeMs = currentTimeMs;
             }
 
+            // TODO: Get security token for the specific table.
+            // 先获取表或分区的remoteDataDir, 再获取token, 优先使用缓存
+
             return CompletableFuture.completedFuture(
                     toGetFileSystemSecurityTokenResponse(
                             remoteFileSystem.getUri().getScheme(), securityToken));
