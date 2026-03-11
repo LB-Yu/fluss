@@ -77,7 +77,7 @@ public class ProducerOffsetsManager implements AutoCloseable {
 
     public ProducerOffsetsManager(Configuration conf, ZooKeeperClient zkClient) {
         this(
-                new ProducerOffsetsStore(zkClient, conf.getString(ConfigOptions.REMOTE_DATA_DIR)),
+                new ProducerOffsetsStore(zkClient, zkClient.getDefaultRemoteDataDir()),
                 conf.get(ConfigOptions.COORDINATOR_PRODUCER_OFFSETS_TTL).toMillis(),
                 conf.get(ConfigOptions.COORDINATOR_PRODUCER_OFFSETS_CLEANUP_INTERVAL).toMillis());
     }

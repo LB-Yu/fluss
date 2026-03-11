@@ -67,6 +67,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import static org.apache.fluss.config.FlussConfigUtils.getDefaultRemoteDataDir;
 import static org.apache.fluss.config.FlussConfigUtils.validateCoordinatorConfigs;
 
 /**
@@ -226,7 +227,7 @@ public class CoordinatorServer extends ServerBase {
                             conf.get(ConfigOptions.KV_SNAPSHOT_LEASE_EXPIRATION_CHECK_INTERVAL)
                                     .toMillis(),
                             zkClient,
-                            conf.getString(ConfigOptions.REMOTE_DATA_DIR),
+                            getDefaultRemoteDataDir(conf),
                             clock,
                             serverMetricGroup);
             kvSnapshotLeaseManager.start();
