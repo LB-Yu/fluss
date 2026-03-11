@@ -57,11 +57,9 @@ import org.apache.flink.api.connector.source.SplitsAssignment;
 import org.apache.flink.api.connector.source.mocks.MockSplitEnumeratorContext;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
-import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -597,8 +595,7 @@ class FlinkSourceEnumeratorTest extends FlinkTestBase {
 
     @ParameterizedTest
     @ValueSource(booleans = {true, false})
-    void testPartitionsExpiredInFlussButExistInLake(
-            boolean isPrimaryKeyTable, @TempDir Path tempDir) throws Throwable {
+    void testPartitionsExpiredInFlussButExistInLake(boolean isPrimaryKeyTable) throws Throwable {
         int numSubtasks = 3;
         TableDescriptor tableDescriptor =
                 isPrimaryKeyTable
@@ -635,7 +632,7 @@ class FlinkSourceEnumeratorTest extends FlinkTestBase {
                                 new TableBucket(tableId, hybridPartitionId, 0), lakeEndOffset,
                                 new TableBucket(tableId, hybridPartitionId, 1), lakeEndOffset,
                                 new TableBucket(tableId, hybridPartitionId, 2), lakeEndOffset));
-        LakeTableHelper lakeTableHelper = new LakeTableHelper(zooKeeperClient, tempDir.toString());
+        LakeTableHelper lakeTableHelper = new LakeTableHelper(zooKeeperClient);
         lakeTableHelper.registerLakeTableSnapshotV1(tableId, lakeTableSnapshot);
 
         // Create PartitionInfo for lake partitions
