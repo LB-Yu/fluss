@@ -17,7 +17,6 @@
 
 package org.apache.fluss.lake.paimon.tiering;
 
-import org.apache.fluss.config.ConfigOptions;
 import org.apache.fluss.config.Configuration;
 import org.apache.fluss.lake.committer.CommittedLakeSnapshot;
 import org.apache.fluss.lake.committer.CommitterInitContext;
@@ -35,6 +34,9 @@ import org.apache.paimon.manifest.IndexManifestEntry;
 import org.apache.paimon.manifest.ManifestCommittable;
 import org.apache.paimon.manifest.ManifestEntry;
 import org.apache.paimon.manifest.SimpleFileEntry;
+import org.apache.paimon.operation.PartitionExpire;
+import org.apache.paimon.options.ExpireConfig;
+import org.apache.paimon.table.ExpireSnapshots;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.TableSnapshot;
 import org.apache.paimon.table.sink.CommitCallback;
@@ -50,6 +52,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
 
 import static org.apache.fluss.lake.paimon.tiering.PaimonLakeTieringFactory.FLUSS_LAKE_TIERING_COMMIT_USER;
 import static org.apache.fluss.lake.paimon.utils.PaimonConversions.toPaimon;
@@ -66,6 +69,9 @@ public class PaimonLakeCommitter implements LakeCommitter<PaimonWriteResult, Pai
     private final TablePath tablePath;
     private final long tableId;
     private final Configuration flussClientConfig;
+    /** External executor for running async expire tasks. */
+    @Nullable private final ExecutorService expireExecutor;
+
     private TableCommitImpl tableCommit;
 
     private static final ThreadLocal<Long> currentCommitSnapshotId = new ThreadLocal<>();
@@ -77,16 +83,8 @@ public class PaimonLakeCommitter implements LakeCommitter<PaimonWriteResult, Pai
         this.tablePath = committerInitContext.tablePath();
         this.tableId = committerInitContext.tableInfo().getTableId();
         this.flussClientConfig = committerInitContext.flussClientConfig();
-        this.fileStoreTable =
-                getTable(
-                        committerInitContext.tablePath(),
-                        committerInitContext
-                                        .tableInfo()
-                                        .getTableConfig()
-                                        .isDataLakeAutoExpireSnapshot()
-                                || committerInitContext
-                                        .lakeTieringConfig()
-                                        .get(ConfigOptions.LAKE_TIERING_AUTO_EXPIRE_SNAPSHOT));
+        this.expireExecutor = committerInitContext.expireExecutor();
+        this.fileStoreTable = getTable(committerInitContext.tablePath());
     }
 
     @Override
@@ -109,6 +107,11 @@ public class PaimonLakeCommitter implements LakeCommitter<PaimonWriteResult, Pai
         try {
             tableCommit = fileStoreTable.newCommit(FLUSS_LAKE_TIERING_COMMIT_USER);
             tableCommit.commit(manifestCommittable);
+
+            // Submit async expire task after successful commit
+            if (expireExecutor != null) {
+                submitExpireTask();
+            }
 
             long committedSnapshotId =
                     checkNotNull(
@@ -159,6 +162,41 @@ public class PaimonLakeCommitter implements LakeCommitter<PaimonWriteResult, Pai
             }
             throw new IOException(t);
         }
+    }
+
+    /**
+     * Submits an asynchronous expiry task to the external executor. The task uses Paimon's internal
+     * APIs to independently create and run all expire logic (snapshot expire, partition expire, tag
+     * expire, consumer expire), without relying on TableCommitImpl's internal maintain mechanism.
+     *
+     * <p>This approach avoids the lifecycle mismatch between TableCommitImpl's internal executor
+     * (which is shut down via shutdownNow() on close) and the long-running nature of expire tasks.
+     */
+    private void submitExpireTask() {
+        final FileStoreTable table = getTableForExpire(fileStoreTable);
+        final TablePath path = tablePath;
+
+        expireExecutor.execute(
+                () -> {
+                    try {
+                        LOG.info("Starting async expire for table {}.", path);
+
+                        // Partition expire
+                        PartitionExpire partitionExpire =
+                                table.store()
+                                        .newPartitionExpire(FLUSS_LAKE_TIERING_COMMIT_USER, table);
+                        if (partitionExpire != null) {
+                            partitionExpire.expire(Long.MAX_VALUE);
+                        }
+
+                        // Snapshot expire
+                        newExpireRunnable(table).run();
+
+                        LOG.info("Async expire completed for table {}.", path);
+                    } catch (Throwable t) {
+                        LOG.error("Async expire failed for table {}.", path, t);
+                    }
+                });
     }
 
     /** Computes cumulative table stats from the latest snapshot by REST API. */
@@ -256,8 +294,7 @@ public class PaimonLakeCommitter implements LakeCommitter<PaimonWriteResult, Pai
         }
     }
 
-    private FileStoreTable getTable(TablePath tablePath, boolean isAutoSnapshotExpiration)
-            throws IOException {
+    private FileStoreTable getTable(TablePath tablePath) throws IOException {
         try {
             FileStoreTable table = (FileStoreTable) paimonCatalog.getTable(toPaimon(tablePath));
 
@@ -266,25 +303,47 @@ public class PaimonLakeCommitter implements LakeCommitter<PaimonWriteResult, Pai
                     CoreOptions.COMMIT_CALLBACKS.key(),
                     PaimonLakeCommitter.PaimonCommitCallback.class.getName());
 
-            boolean writeOnly = !isAutoSnapshotExpiration;
-            dynamicOptions.put(CoreOptions.WRITE_ONLY.key(), Boolean.toString(writeOnly));
-
-            // For non-write-only modes, we enable 'end-input.check-partition-expire' to ensure
-            // Paimon triggers partition expiration on every commit.
-            // Note: This is necessary even if 'paimon.partition.expiration-check-interval' is
-            // already configured. Because the Fluss tiering service creates a fresh TableCommit
-            // instance for each commit, the interval-based expiration check will not be triggered
-            // correctly otherwise.
-            if (!writeOnly) {
-                dynamicOptions.put(
-                        CoreOptions.END_INPUT_CHECK_PARTITION_EXPIRE.key(),
-                        Boolean.TRUE.toString());
-            }
+            // Always set WRITE_ONLY to true to disable Paimon's internal expire trigger.
+            dynamicOptions.put(CoreOptions.WRITE_ONLY.key(), Boolean.TRUE.toString());
 
             return table.copy(dynamicOptions);
         } catch (Exception e) {
             throw new IOException("Failed to get table " + tablePath + " in Paimon.", e);
         }
+    }
+
+    private FileStoreTable getTableForExpire(FileStoreTable table) {
+        Map<String, String> dynamicOptions = new HashMap<>();
+
+        // Always set WRITE_ONLY to false to ensure Paimon triggers expiration.
+        dynamicOptions.put(CoreOptions.WRITE_ONLY.key(), Boolean.FALSE.toString());
+
+        // For non-write-only modes, we enable 'end-input.check-partition-expire' to ensure
+        // Paimon triggers partition expiration on every commit.
+        // Note: This is necessary even if 'paimon.partition.expiration-check-interval' is
+        // already configured. Because the Fluss tiering service creates a fresh TableCommit
+        // instance for each commit, the interval-based expiration check will not be triggered
+        // correctly otherwise.
+        dynamicOptions.put(
+                CoreOptions.END_INPUT_CHECK_PARTITION_EXPIRE.key(), Boolean.TRUE.toString());
+
+        return table.copy(dynamicOptions);
+    }
+
+    protected Runnable newExpireRunnable(FileStoreTable fileStoreTable) {
+        CoreOptions options = fileStoreTable.coreOptions();
+
+        boolean changelogDecoupled = options.changelogLifecycleDecoupled();
+        ExpireConfig expireConfig = options.expireConfig();
+        ExpireSnapshots expireChangelog = fileStoreTable.newExpireChangelog().config(expireConfig);
+        ExpireSnapshots expireSnapshots = fileStoreTable.newExpireSnapshots().config(expireConfig);
+
+        return () -> {
+            expireSnapshots.expire();
+            if (changelogDecoupled) {
+                expireChangelog.expire();
+            }
+        };
     }
 
     /** A {@link CommitCallback} to save paimon commit snapshot info. */

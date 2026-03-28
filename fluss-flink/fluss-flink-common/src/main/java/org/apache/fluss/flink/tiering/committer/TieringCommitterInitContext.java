@@ -23,6 +23,10 @@ import org.apache.fluss.lake.committer.LakeCommitter;
 import org.apache.fluss.metadata.TableInfo;
 import org.apache.fluss.metadata.TablePath;
 
+import javax.annotation.Nullable;
+
+import java.util.concurrent.ExecutorService;
+
 /** The {@link CommitterInitContext} implementation for {@link LakeCommitter}. */
 public class TieringCommitterInitContext implements CommitterInitContext {
 
@@ -30,16 +34,19 @@ public class TieringCommitterInitContext implements CommitterInitContext {
     private final TableInfo tableInfo;
     private final Configuration lakeTieringConfig;
     private final Configuration flussClientConfig;
+    @Nullable private final ExecutorService expireExecutor;
 
     public TieringCommitterInitContext(
             TablePath tablePath,
             TableInfo tableInfo,
             Configuration lakeTieringConfig,
-            Configuration flussClientConfig) {
+            Configuration flussClientConfig,
+            @Nullable ExecutorService expireExecutor) {
         this.tablePath = tablePath;
         this.tableInfo = tableInfo;
         this.lakeTieringConfig = lakeTieringConfig;
         this.flussClientConfig = flussClientConfig;
+        this.expireExecutor = expireExecutor;
     }
 
     @Override
@@ -60,5 +67,11 @@ public class TieringCommitterInitContext implements CommitterInitContext {
     @Override
     public Configuration flussClientConfig() {
         return flussClientConfig;
+    }
+
+    @Override
+    @Nullable
+    public ExecutorService expireExecutor() {
+        return expireExecutor;
     }
 }

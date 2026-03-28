@@ -34,6 +34,7 @@ import org.apache.fluss.record.GenericRecord;
 import org.apache.fluss.record.LogRecord;
 import org.apache.fluss.row.BinaryString;
 import org.apache.fluss.row.GenericRow;
+import org.apache.fluss.shaded.guava32.com.google.common.util.concurrent.MoreExecutors;
 import org.apache.fluss.utils.types.Tuple2;
 
 import org.apache.paimon.CoreOptions;
@@ -70,6 +71,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
 import java.util.stream.Stream;
 
 import static org.apache.fluss.lake.committer.LakeCommitter.FLUSS_LAKE_SNAP_BUCKET_OFFSET_PROPERTY;
@@ -111,22 +113,14 @@ class PaimonTieringTest {
 
     private static Stream<Arguments> snapshotExpireArgs() {
         return Stream.of(
-                Arguments.of(true, true, true),
-                Arguments.of(true, true, false),
-                Arguments.of(true, false, true),
-                Arguments.of(true, false, false),
-                Arguments.of(false, true, true),
-                Arguments.of(false, true, false),
-                Arguments.of(false, false, true),
-                Arguments.of(false, false, false));
-    }
-
-    private static Stream<Arguments> partitionExpireArgs() {
-        return Stream.of(
                 Arguments.of(true, true),
                 Arguments.of(true, false),
                 Arguments.of(false, true),
                 Arguments.of(false, false));
+    }
+
+    private static Stream<Arguments> partitionExpireArgs() {
+        return Stream.of(Arguments.of(true), Arguments.of(false));
     }
 
     @ParameterizedTest
@@ -365,10 +359,7 @@ class PaimonTieringTest {
 
     @ParameterizedTest
     @MethodSource("snapshotExpireArgs")
-    void testSnapshotExpiration(
-            boolean isPartitioned,
-            boolean isTableAutoExpireSnapshot,
-            boolean isLakeTieringExpireSnapshot)
+    void testSnapshotExpiration(boolean isPartitioned, boolean isLakeTieringExpireSnapshot)
             throws Exception {
         int bucketNum = 3;
         TablePath tablePath =
@@ -391,9 +382,6 @@ class PaimonTieringTest {
                                         .build())
                         .distributedBy(bucketNum)
                         .property(ConfigOptions.TABLE_DATALAKE_ENABLED, true)
-                        .property(
-                                ConfigOptions.TABLE_DATALAKE_AUTO_EXPIRE_SNAPSHOT,
-                                isTableAutoExpireSnapshot)
                         .build();
         TableInfo tableInfo =
                 TableInfo.of(tablePath, 0, 1, descriptor, DEFAULT_REMOTE_DATA_DIR, 1L, 1L);
@@ -425,7 +413,7 @@ class PaimonTieringTest {
         // write more data
         for (int i = 0; i < 5; i++) {
             writeData(tableInfo, lakeTieringConfig, new HashMap<>(), partitionIdAndName);
-            if (isTableAutoExpireSnapshot || isLakeTieringExpireSnapshot) {
+            if (isLakeTieringExpireSnapshot) {
                 // if auto snapshot expiration is enabled, snapshot should be expired
                 assertThat(snapshotManager.snapshotCount()).isEqualTo(2);
             } else {
@@ -437,9 +425,7 @@ class PaimonTieringTest {
 
     @ParameterizedTest
     @MethodSource("partitionExpireArgs")
-    void testPartitionExpiration(
-            boolean isTableAutoExpireSnapshot, boolean isLakeTieringExpireSnapshot)
-            throws Exception {
+    void testPartitionExpiration(boolean isLakeTieringExpireSnapshot) throws Exception {
         TablePath tablePath = TablePath.of("paimon", "test_partition_expire");
         // Use a fixed ancient date so the partition is always considered expired.
         // "20200101" with expiration-time=1d is always past-due – no wall-clock dependency.
@@ -462,9 +448,6 @@ class PaimonTieringTest {
                         .partitionedBy("c3")
                         .distributedBy(1)
                         .property(ConfigOptions.TABLE_DATALAKE_ENABLED, true)
-                        .property(
-                                ConfigOptions.TABLE_DATALAKE_AUTO_EXPIRE_SNAPSHOT,
-                                isTableAutoExpireSnapshot)
                         .build();
         TableInfo tableInfo =
                 TableInfo.of(tablePath, 0, 1, descriptor, DEFAULT_REMOTE_DATA_DIR, 1L, 1L);
@@ -487,7 +470,7 @@ class PaimonTieringTest {
         }
 
         List<Partition> partitions = paimonCatalog.listPartitions(toPaimon(tablePath));
-        if (isTableAutoExpireSnapshot || isLakeTieringExpireSnapshot) {
+        if (isLakeTieringExpireSnapshot) {
             // if auto snapshot expiration is enabled, partition should also be expired
             assertThat(partitions).isEmpty();
         } else {
@@ -836,6 +819,15 @@ class PaimonTieringTest {
                     public Configuration flussClientConfig() {
                         // don't care about fluss client config
                         return new Configuration();
+                    }
+
+                    @Override
+                    public ExecutorService expireExecutor() {
+                        if (lakeTieringConfig.get(
+                                ConfigOptions.LAKE_TIERING_AUTO_EXPIRE_SNAPSHOT)) {
+                            return MoreExecutors.newDirectExecutorService();
+                        }
+                        return null;
                     }
                 });
     }

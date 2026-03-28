@@ -22,6 +22,10 @@ import org.apache.fluss.config.Configuration;
 import org.apache.fluss.metadata.TableInfo;
 import org.apache.fluss.metadata.TablePath;
 
+import javax.annotation.Nullable;
+
+import java.util.concurrent.ExecutorService;
+
 /**
  * The CommitterInitContext interface provides the context needed to create a LakeCommitter. It
  * includes methods to obtain the table path, table info and lake tiering configs.
@@ -59,4 +63,19 @@ public interface CommitterInitContext {
      * @return the Fluss client configuration
      */
     Configuration flussClientConfig();
+
+    /**
+     * Returns the optional executor service for running async snapshot expiration tasks. When
+     * non-null, the lake committer should use this executor to submit expire tasks instead of
+     * relying on the internal expire mechanism of the underlying lake format.
+     *
+     * <p>The lifecycle of this executor is managed by the caller (e.g., TieringCommitOperator), not
+     * by the LakeCommitter.
+     *
+     * @return the expire executor, or null if async expire is not enabled
+     */
+    @Nullable
+    default ExecutorService expireExecutor() {
+        return null;
+    }
 }

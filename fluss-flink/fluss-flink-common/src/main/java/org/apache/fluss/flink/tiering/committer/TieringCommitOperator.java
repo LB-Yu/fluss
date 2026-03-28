@@ -21,6 +21,7 @@ import org.apache.fluss.client.Connection;
 import org.apache.fluss.client.ConnectionFactory;
 import org.apache.fluss.client.admin.Admin;
 import org.apache.fluss.client.metadata.LakeSnapshot;
+import org.apache.fluss.config.ConfigOptions;
 import org.apache.fluss.config.Configuration;
 import org.apache.fluss.exception.LakeTableSnapshotNotExistException;
 import org.apache.fluss.flink.tiering.event.FailedTieringEvent;
@@ -37,6 +38,7 @@ import org.apache.fluss.metadata.TableBucket;
 import org.apache.fluss.metadata.TableInfo;
 import org.apache.fluss.metadata.TablePath;
 import org.apache.fluss.utils.ExceptionUtils;
+import org.apache.fluss.utils.concurrent.ExecutorThreadFactory;
 
 import org.apache.flink.runtime.operators.coordination.OperatorEventGateway;
 import org.apache.flink.runtime.source.event.SourceEventWrapper;
@@ -54,6 +56,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import static org.apache.fluss.lake.committer.LakeCommitter.FLUSS_LAKE_SNAP_BUCKET_OFFSET_PROPERTY;
@@ -87,6 +92,9 @@ public class TieringCommitOperator<WriteResult, Committable>
     private final FlussTableLakeSnapshotCommitter flussTableLakeSnapshotCommitter;
     private Connection connection;
     private Admin admin;
+
+    /** Shared thread pool for async snapshot expiration tasks. */
+    @Nullable private ExecutorService expireExecutor;
 
     // gateway to send event to flink source coordinator
     private final OperatorEventGateway operatorEventGateway;
@@ -136,6 +144,12 @@ public class TieringCommitOperator<WriteResult, Committable>
         flussTableLakeSnapshotCommitter.open();
         connection = ConnectionFactory.createConnection(flussConfig);
         admin = connection.getAdmin();
+        if (lakeTieringConfig.get(ConfigOptions.LAKE_TIERING_AUTO_EXPIRE_SNAPSHOT)) {
+            expireExecutor =
+                    Executors.newSingleThreadExecutor(
+                            new ExecutorThreadFactory(
+                                    Thread.currentThread().getName() + "-tiering-expire"));
+        }
     }
 
     @Override
@@ -224,7 +238,11 @@ public class TieringCommitOperator<WriteResult, Committable>
         try (LakeCommitter<WriteResult, Committable> lakeCommitter =
                 lakeTieringFactory.createLakeCommitter(
                         new TieringCommitterInitContext(
-                                tablePath, currentTableInfo, lakeTieringConfig, flussConfig))) {
+                                tablePath,
+                                currentTableInfo,
+                                lakeTieringConfig,
+                                flussConfig,
+                                expireExecutor))) {
             List<WriteResult> writeResults =
                     nonEmptyResults.stream()
                             .map(TableBucketWriteResult::writeResult)
@@ -417,6 +435,20 @@ public class TieringCommitOperator<WriteResult, Committable>
         }
         if (connection != null) {
             connection.close();
+        }
+        if (expireExecutor != null) {
+            expireExecutor.shutdown();
+            try {
+                if (!expireExecutor.awaitTermination(60, TimeUnit.SECONDS)) {
+                    LOG.warn(
+                            "Expire executor did not terminate within 60 seconds, forcing shutdown.");
+                    expireExecutor.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                LOG.warn("Interrupted while waiting for expire executor to terminate.");
+                expireExecutor.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
         }
     }
 }
